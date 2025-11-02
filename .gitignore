@@ -5,4 +5,4 @@ json/
 model_weight/
 experiments/
 __pycache__/
-*.png
+# *.png
