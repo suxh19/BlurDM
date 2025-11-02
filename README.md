@@ -17,7 +17,7 @@ For each backbone, run the training scripts **in order**:
 2. `train_stage2.py`
 3. `train_stage3.py`
 
-### Notes
+**Notes:**
 - In `train_stage2.py`, load the **Encoder weights** trained in **Stage 1**.
 - In `train_stage3.py`, load both:
   - the **deblurring backbone weights** pretrained in **Stage 1**, and
