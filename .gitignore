@@ -1,0 +1,7 @@
+log/
+weights/
+output/
+json/
+model_weight/
+experiments/
+*.png
