@@ -19,7 +19,7 @@ lpips_model.eval()
 
 # 資料夾路徑
 folder1 = '/home/jthe/DeblurDM/dataset/test/GoPro/target'
-folder2 = '/home/jthe/BlurDM/results/Stripformer/GoPro/results/GoPro'
+folder2 = '/home/jthe/BlurDM/results/MIMO_UNet/GoPro/GoPro'
 
 # 匯入圖片列表
 files1 = set(os.listdir(folder1))
