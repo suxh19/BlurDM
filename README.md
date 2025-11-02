@@ -30,3 +30,6 @@ Then run `deblur_predict.py` to evaluate on the test sets of each dataset.
 **Important:**
 - In `deblur_predict.py`, set the correct **path to the trained weights**.
 - Also set the **dataset paths** before running.
+
+## Results
+![Results](assets/BlurDM_results.png)
