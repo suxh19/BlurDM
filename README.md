@@ -36,10 +36,10 @@ Then run `deblur_predict.py` to evaluate on the test sets of each dataset.
 ![Results](assets/BlurDM_results.png)
 
 ## Citation
-'''
+```
 @inproceedings{heblurdm,
   title={BlurDM: A Blur Diffusion Model for Image Deblurring},
   author={He, Jin-Ting and Tsai, Fu-Jen and Peng, Yan-Tsung and Chen, Min-Hung and Lin, Chia-Wen and Lin, Yen-Yu},
   booktitle={The Thirty-ninth Annual Conference on Neural Information Processing Systems}
 }
-'''
+```
