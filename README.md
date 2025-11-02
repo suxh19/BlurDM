@@ -26,10 +26,10 @@ For each backbone, run the training scripts **in order**:
 
 ## Testing
 You can either load your **trained weights** or download **our trained weights for each backbone** from [this link](<https://drive.google.com/drive/folders/144ntonNrjf_rjiDJQduzi9_5XhHI2TB-?usp=sharing>).  
-Then run `deblur_predict.py` to evaluate on the test sets of each dataset.
+Then run `python deblur_predict.py` or `torchrun deblur_predict_ddp.py` to evaluate on the test sets of each dataset.
 
 **Important:**
-- In `deblur_predict.py`, set the correct **path to the trained weights**.
+- In `deblur_predict.py` and `deblur_predict_ddp.py`, set the correct **path to the trained weights**.
 - Also set the **dataset paths** before running.
 
 ## Results
