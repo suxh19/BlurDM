@@ -1,3 +1,12 @@
+# Copyright (c) 2025, NVIDIA CORPORATION.  All rights reserved.
+#
+# NVIDIA CORPORATION and its licensors retain all intellectual property
+# and proprietary rights in and to this software, related documentation
+# and any modifications thereto.  Any use, reproduction, disclosure or
+# distribution of this software and related documentation without an express
+# license agreement from NVIDIA CORPORATION is strictly prohibited.
+
+
 import os
 import torch
 import lpips
@@ -7,21 +16,18 @@ from skimage.metrics import peak_signal_noise_ratio as psnr
 from utils.metrics.psnr_ssim import calculate_ssim, calculate_psnr
 from torchvision import transforms
 transform = transforms.Compose([
-    transforms.Resize((256, 256)),  # 根據需要調整大小
+    transforms.Resize((256, 256)),  
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5])  # LPIPS 標準化
+    transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]) 
 ])
 
 
-# 初始化 LPIPS 模型
 lpips_model = lpips.LPIPS(net='alex').cuda()  # 'alex', 'vgg', or 'squeeze'
 lpips_model.eval()
 
-# 資料夾路徑
 folder1 = '/home/jthe/DeblurDM/dataset/test/GoPro/target'
 folder2 = '/home/jthe/BlurDM/results/MIMO_UNet/GoPro/GoPro'
 
-# 匯入圖片列表
 files1 = set(os.listdir(folder1))
 files2 = set(os.listdir(folder2))
 
