@@ -60,7 +60,7 @@ For each backbone, run the training scripts **in order**:
 ## Testing
 You can load your **trained weights** and run `python deblur_predict.py` or `torchrun deblur_predict_ddp.py` to evaluate on the test sets of each dataset.
 
-Our trained weights is upcomming.
+Our trained weights are coming soon.
 <!-- or download **our trained weights for each backbone** from [this link](<https://drive.google.com/drive/folders/144ntonNrjf_rjiDJQduzi9_5XhHI2TB-?usp=sharing>).   -->
 <!-- Then run `python deblur_predict.py` or `torchrun deblur_predict_ddp.py` to evaluate on the test sets of each dataset. -->
 
