@@ -21,7 +21,7 @@ Download dataset from following links:
 [RealBlur](<https://cg.postech.ac.kr/research/realblur/>)
 
 The data folder should be like the format below:
-'''
+```
 GOPRO
 ├─ train
 │  ├─ video1    % 2103 image pairs
@@ -42,7 +42,7 @@ GOPRO
 │
 ├─ test    % 1111 image pairs
 │  ├─ ...... (same structure as train)
-'''
+```
 
 ## Training
 For each backbone, run the training scripts **in order**:
