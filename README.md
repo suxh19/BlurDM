@@ -11,6 +11,34 @@ conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cud
 pip install opencv-python tqdm tensorboardX pyiqa thop numpy pandas
 ```
 
+## Dataset Preparation
+Download dataset from following links:
+[GoPro](<https://seungjunnah.github.io/Datasets/gopro.html>)
+[HIDE](<https://github.com/joanshen0508/HA_deblur?tab=readme-ov-file>)
+[RealBlur](<https://cg.postech.ac.kr/research/realblur/>)
+
+The data folder should be like the format below:
+GOPRO
+├─ train
+│  ├─ video1    % 2103 image pairs
+│  │  ├─ blur
+│  │  │  ├─ xxxx.png
+│  │  │  ├─ ......
+│  │  ├─ sharp
+│  │  │  ├─ xxxx.png
+│  │  │  ├─ ......
+│  │
+│  ├─ video2
+│  │  ├─ blur
+│  │  │  ├─ xxxx.png
+│  │  │  ├─ ......
+│  │  ├─ sharp
+│  │  │  ├─ xxxx.png
+│  │  │  ├─ ......
+│
+├─ test    % 1111 image pairs
+│  ├─ ...... (same structure as train)
+
 ## Training
 For each backbone, run the training scripts **in order**:
 
@@ -25,8 +53,11 @@ For each backbone, run the training scripts **in order**:
   - the **BlurDM weights** trained in **Stage 2**.
 
 ## Testing
-You can either load your **trained weights** or download **our trained weights for each backbone** from [this link](<https://drive.google.com/drive/folders/144ntonNrjf_rjiDJQduzi9_5XhHI2TB-?usp=sharing>).  
-Then run `python deblur_predict.py` or `torchrun deblur_predict_ddp.py` to evaluate on the test sets of each dataset.
+You can load your **trained weights** and run `python deblur_predict.py` or `torchrun deblur_predict_ddp.py` to evaluate on the test sets of each dataset.
+
+Our trained weights is upcomming.
+<!-- or download **our trained weights for each backbone** from [this link](<https://drive.google.com/drive/folders/144ntonNrjf_rjiDJQduzi9_5XhHI2TB-?usp=sharing>).   -->
+<!-- Then run `python deblur_predict.py` or `torchrun deblur_predict_ddp.py` to evaluate on the test sets of each dataset. -->
 
 **Important:**
 - In `deblur_predict.py` and `deblur_predict_ddp.py`, set the correct **path to the trained weights**.
