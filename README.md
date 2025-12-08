@@ -37,7 +37,7 @@ Then run `python deblur_predict.py` or `torchrun deblur_predict_ddp.py` to evalu
 
 
 ## Acknowledgement
-The utils is is built upon [BasicSR](<https://github.com/XPixelGroup/BasicSR>)
+The utils is is built upon [BasicSR](<https://github.com/XPixelGroup/BasicSR>).
 ## Citation
 ```
 @inproceedings{heblurdm,
