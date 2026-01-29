@@ -15,8 +15,7 @@ from angle_diffusion.data.ct_dataset import CTDataset
 from angle_diffusion.models.mimo_unet import build_MIMOUnet_net
 from angle_diffusion.models.latent_encoder import LE_arch
 from angle_diffusion.models.losses import CharbonnierLoss, L1andPerceptualLoss
-from angle_diffusion.physics.ct_physics import CT_Physics
-from angle_diffusion.utils.misc import ensure_dir, save_yaml, seed_everything, to_batch_numpy
+from angle_diffusion.utils.misc import ensure_dir, save_yaml, seed_everything
 
 
 def rfft(x: torch.Tensor, d: int) -> torch.Tensor:
@@ -52,13 +51,12 @@ def validate(
     cfg: Stage1Config,
     model: torch.nn.Module,
     model_le: torch.nn.Module,
-    physics: CT_Physics,
     loader: DataLoader,
     device: torch.device,
-    t_val: int,
     epoch: int | None = None,
     out_dir: str | None = None,
 ) -> float:
+    """Validate using precomputed SART images from dataset."""
     model.eval()
     model_le.eval()
     losses = []
@@ -70,17 +68,13 @@ def validate(
     total_batches = len(loader)
     num_batches = max(1, int(total_batches * cfg.val_ratio))
     
-    for batch_idx, (x0, _) in enumerate(loader):
+    for batch_idx, (x0, x_t) in enumerate(loader):
         if batch_idx >= num_batches:
             break
             
-        x0 = x0.to(device)  # [B,1,H,W] in [0,1]
+        x0 = x0.to(device)  # [B,1,H,W] GT in [0,1]
+        x_t = x_t.to(device)  # [B,1,H,W] SART input
         bs = x0.shape[0]
-        t = torch.full((bs,), int(t_val), device=device, dtype=torch.long)
-
-        x0_np = to_batch_numpy(x0)
-        x_t_np = physics.degrade_batch(x0_np, int(t_val))
-        x_t = torch.from_numpy(x_t_np).unsqueeze(1).to(device)
 
         # Extract latent prior
         z_pred = model_le(x_t, x0)
@@ -102,7 +96,7 @@ def validate(
     
     # 保存可视化结果
     if cfg.val_visualize and vis_images and epoch is not None and out_dir is not None:
-        save_visualizations(out_dir, vis_images, epoch, t_val)
+        save_visualizations(out_dir, vis_images, epoch)
     
     return float(np.mean(losses)) if losses else 0.0
 
@@ -111,7 +105,6 @@ def save_visualizations(
     out_dir: str,
     vis_images: list[dict], 
     epoch: int, 
-    t_val: int
 ) -> None:
     """保存验证可视化结果"""
     import matplotlib.pyplot as plt
@@ -136,10 +129,10 @@ def save_visualizations(
         ax1.axis('off')
         plt.colorbar(im1, ax=ax1, fraction=0.046)
         
-        # Degraded (Input)
+        # SART Input
         ax2 = fig.add_subplot(gs[0, 1])
         im2 = ax2.imshow(degraded, cmap='gray', vmin=0, vmax=1)
-        ax2.set_title(f'Degraded (t={t_val})', fontsize=12, fontweight='bold')
+        ax2.set_title('SART Input', fontsize=12, fontweight='bold')
         ax2.axis('off')
         plt.colorbar(im2, ax=ax2, fraction=0.046)
         
@@ -180,12 +173,6 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
 
     print(f"[Stage1] device={device}")
     print(f"[Stage1] out_dir={out_dir}")
-
-    physics = CT_Physics(
-        focus_table_path=cfg.focus_table_path,
-        sart_iterations=cfg.sart_iterations,
-        preset=cfg.config_preset,
-    )
 
     # Initialize MIMO-UNet model
     model = build_MIMOUnet_net(
@@ -247,30 +234,17 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
         best_val = ckpt.get("best_val")
         print(f"[Stage1] resumed from {resume} @ epoch={start_epoch}")
 
-    t_min = int(max(0, cfg.t_min))
-    t_max = int(min(cfg.max_t, cfg.t_max))
-    if t_min > t_max:
-        raise ValueError(f"t_min({t_min}) > t_max({t_max})")
-
     for epoch in range(start_epoch, cfg.epochs):
         model.train()
         model_le.train()
         losses = []
         pbar = tqdm(train_loader, desc=f"Stage1 Ep {epoch+1}/{cfg.epochs}")
 
-        for x0, _ in pbar:
-            x0 = x0.to(device)
-            bs = x0.shape[0]
+        for x0, x_t in pbar:
+            x0 = x0.to(device)  # [B,1,H,W] GT
+            x_t = x_t.to(device)  # [B,1,H,W] SART input
 
-            # Keep one degradation level per batch for better ASTRA throughput.
-            t_val = int(torch.randint(t_min, t_max + 1, (1,), device=device).item())
-
-            with torch.no_grad():
-                x0_np = to_batch_numpy(x0)
-                x_t_np = physics.degrade_batch(x0_np, t_val)
-                x_t = torch.from_numpy(x_t_np).unsqueeze(1).to(device)
-
-            # Extract latent prior from degraded and ground truth images
+            # Extract latent prior from SART and GT images
             z_pred = model_le(x_t, x0)
             
             # Get multi-scale predictions [1/4x, 1/2x, 1x]
@@ -308,16 +282,14 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
             optimizer.step()
 
             losses.append(loss.item())
-            pbar.set_postfix(loss=float(np.mean(losses)), t=t_val, ns=physics.t_to_num_sources(t_val))
+            pbar.set_postfix(loss=float(np.mean(losses)))
 
         if (epoch + 1) % cfg.save_interval == 0:
             save_checkpoint(out_dir, f"epoch_{epoch+1:04d}.pth", model, model_le, optimizer, epoch + 1, best_val)
 
         if (epoch + 1) % cfg.val_interval == 0:
-            # Use a mid-hardness validation point by default.
-            t_val = int((t_min + t_max) // 2)
-            val_loss = validate(cfg, model, model_le, physics, val_loader, device, t_val=t_val, epoch=epoch+1, out_dir=out_dir)
-            print(f"[Stage1] epoch={epoch+1} val_l1={val_loss:.6f} (t={t_val})")
+            val_loss = validate(cfg, model, model_le, val_loader, device, epoch=epoch+1, out_dir=out_dir)
+            print(f"[Stage1] epoch={epoch+1} val_l1={val_loss:.6f}")
             if best_val is None or val_loss < best_val:
                 best_val = val_loss
                 save_checkpoint(out_dir, "best.pth", model, model_le, optimizer, epoch + 1, best_val)

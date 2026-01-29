@@ -2,10 +2,10 @@ data:
   root: "./dataset"
   train_split: "train"
   val_split: "test"
-  max_samples: 20
+  max_samples: null
 
 training:
-  batch_size: 4
+  batch_size: 24
   lr: 0.0002
   epochs: 200
   num_workers: 4
@@ -26,7 +26,7 @@ physics:
 
 model:
   image_size: 512
-  num_res: 20 # MIMO-UNet residual blocks
+  num_res: 8 # MIMO-UNet residual blocks
   in_channels: 1 # CT single channel
   n_feats: 64 # LatentEncoder features
   n_encoder_res: 6 # LatentEncoder residual blocks
