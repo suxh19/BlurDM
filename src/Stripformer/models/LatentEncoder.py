@@ -39,9 +39,20 @@ class ResBlock(nn.Module):
         return res
     
 class LE_arch(nn.Module):
-    def __init__(self,n_feats = 64, n_encoder_res = 6, bn = False):
+    def __init__(
+        self,
+        n_feats: int = 64,
+        n_encoder_res: int = 6,
+        bn: bool = False,
+        in_channels: int = 3,
+        pixel_unshuffle_factor: int = 4,
+    ):
         super(LE_arch, self).__init__()
-        E1=[nn.Conv2d(96, n_feats, kernel_size=3, padding=1),
+        unshuffle_ch = in_channels * (pixel_unshuffle_factor**2)
+        # x and gt are pixel-unshuffled then concatenated.
+        conv_in_ch = unshuffle_ch * 2
+
+        E1=[nn.Conv2d(conv_in_ch, n_feats, kernel_size=3, padding=1),
             nn.LeakyReLU(0.1, True)]
         E2=[
             ResBlock(
@@ -68,7 +79,7 @@ class LE_arch(nn.Module):
             nn.LeakyReLU(0.1, True)
         )
         
-        self.pixel_unshuffle = nn.PixelUnshuffle(4)
+        self.pixel_unshuffle = nn.PixelUnshuffle(pixel_unshuffle_factor)
     def forward(self, x,gt):
         gt0 = self.pixel_unshuffle(gt)
         x0 = self.pixel_unshuffle(x)
