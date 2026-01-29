@@ -21,6 +21,9 @@ class Stage1Config:
     save_interval: int
     val_interval: int
     seed: int
+    val_ratio: float  # Validation dataset ratio (0.0-1.0)
+    val_visualize: bool  # Whether to save visualizations during validation
+    val_vis_samples: int  # Number of samples to visualize
 
     # Physics / degradation
     focus_table_path: str
@@ -81,6 +84,9 @@ def load_stage1_config(path: str | Path) -> Stage1Config:
         save_interval=cfg["training"]["save_interval"],
         val_interval=cfg["training"]["val_interval"],
         seed=cfg["training"].get("seed", 2023),
+        val_ratio=cfg["training"].get("val_ratio", 1.0),
+        val_visualize=cfg["training"].get("val_visualize", False),
+        val_vis_samples=cfg["training"].get("val_vis_samples", 4),
         focus_table_path=cfg["physics"]["focus_table_path"],
         max_t=cfg["physics"]["max_t"],
         t_min=cfg["physics"].get("t_min", 0),

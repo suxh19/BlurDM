@@ -2,7 +2,7 @@ data:
   root: "./dataset"
   train_split: "train"
   val_split: "test"
-  max_samples: null
+  max_samples: 20
 
 training:
   batch_size: 4
@@ -12,6 +12,9 @@ training:
   save_interval: 10
   val_interval: 5
   seed: 2023
+  val_ratio: 0.1 # 验证数据集使用比例 (0.0-1.0)
+  val_visualize: true # 是否在验证时保存可视化结果
+  val_vis_samples: 4 # 每次验证保存多少个样本的可视化
 
 physics:
   focus_table_path: "./dataset/linear_indices_100.focus_table.npz"

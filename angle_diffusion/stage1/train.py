@@ -56,11 +56,23 @@ def validate(
     loader: DataLoader,
     device: torch.device,
     t_val: int,
+    epoch: int | None = None,
 ) -> float:
     model.eval()
     model_le.eval()
     losses = []
-    for x0, _ in loader:
+    
+    # 可视化存储
+    vis_images = []
+    
+    # 根据 val_ratio 计算需要使用的数据量
+    total_batches = len(loader)
+    num_batches = max(1, int(total_batches * cfg.val_ratio))
+    
+    for batch_idx, (x0, _) in enumerate(loader):
+        if batch_idx >= num_batches:
+            break
+            
         x0 = x0.to(device)  # [B,1,H,W] in [0,1]
         bs = x0.shape[0]
         t = torch.full((bs,), int(t_val), device=device, dtype=torch.long)
@@ -76,14 +88,91 @@ def validate(
         # Use full-scale output for validation
         pred = outputs[2]
         losses.append(F.l1_loss(pred, x0).item())
+        
+        # 收集可视化样本
+        if cfg.val_visualize and len(vis_images) < cfg.val_vis_samples:
+            # 每个样本保存：原图、退化图、预测图
+            for i in range(min(bs, cfg.val_vis_samples - len(vis_images))):
+                vis_images.append({
+                    'gt': x0[i].cpu(),
+                    'degraded': x_t[i].cpu(),
+                    'pred': pred[i].cpu(),
+                })
+    
+    # 保存可视化结果
+    if cfg.val_visualize and vis_images and epoch is not None:
+        save_visualizations(cfg, vis_images, epoch, t_val)
+    
     return float(np.mean(losses)) if losses else 0.0
 
 
+def save_visualizations(
+    cfg: Stage1Config, 
+    vis_images: list[dict], 
+    epoch: int, 
+    t_val: int
+) -> None:
+    """保存验证可视化结果"""
+    import matplotlib.pyplot as plt
+    from matplotlib.gridspec import GridSpec
+    
+    vis_dir = os.path.join(cfg.out_dir, "logs", "visualizations", f"epoch_{epoch:04d}")
+    ensure_dir(vis_dir)
+    
+    for idx, img_dict in enumerate(vis_images):
+        gt = img_dict['gt'].squeeze().numpy()  # [H, W]
+        degraded = img_dict['degraded'].squeeze().numpy()
+        pred = img_dict['pred'].squeeze().numpy()
+        
+        # 创建对比图
+        fig = plt.figure(figsize=(15, 5))
+        gs = GridSpec(1, 3, figure=fig, wspace=0.3)
+        
+        # Ground Truth
+        ax1 = fig.add_subplot(gs[0, 0])
+        im1 = ax1.imshow(gt, cmap='gray', vmin=0, vmax=1)
+        ax1.set_title('Ground Truth', fontsize=12, fontweight='bold')
+        ax1.axis('off')
+        plt.colorbar(im1, ax=ax1, fraction=0.046)
+        
+        # Degraded (Input)
+        ax2 = fig.add_subplot(gs[0, 1])
+        im2 = ax2.imshow(degraded, cmap='gray', vmin=0, vmax=1)
+        ax2.set_title(f'Degraded (t={t_val})', fontsize=12, fontweight='bold')
+        ax2.axis('off')
+        plt.colorbar(im2, ax=ax2, fraction=0.046)
+        
+        # Prediction
+        ax3 = fig.add_subplot(gs[0, 2])
+        im3 = ax3.imshow(pred, cmap='gray', vmin=0, vmax=1)
+        ax3.set_title('Prediction', fontsize=12, fontweight='bold')
+        ax3.axis('off')
+        plt.colorbar(im3, ax=ax3, fraction=0.046)
+        
+        # 计算误差指标
+        mae = np.mean(np.abs(pred - gt))
+        mse = np.mean((pred - gt) ** 2)
+        
+        fig.suptitle(f'Sample {idx+1} | MAE: {mae:.4f} | MSE: {mse:.6f}', 
+                     fontsize=14, fontweight='bold', y=0.98)
+        
+        save_path = os.path.join(vis_dir, f"sample_{idx+1:02d}.png")
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close(fig)
+    
+    print(f"[Visualization] Saved {len(vis_images)} samples to {vis_dir}")
+
+
 def train(cfg: Stage1Config, resume: str | None = None) -> None:
+    from datetime import datetime
+    
     seed_everything(cfg.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    out_dir = ensure_dir(cfg.out_dir)
+    # 创建时间戳子目录
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_out_dir = ensure_dir(cfg.out_dir)
+    out_dir = ensure_dir(os.path.join(base_out_dir, timestamp))
     ensure_dir(os.path.join(out_dir, "checkpoints"))
     ensure_dir(os.path.join(out_dir, "logs"))
     save_yaml(cfg, os.path.join(out_dir, "stage1_config_resolved.yaml"))
@@ -226,7 +315,7 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
         if (epoch + 1) % cfg.val_interval == 0:
             # Use a mid-hardness validation point by default.
             t_val = int((t_min + t_max) // 2)
-            val_loss = validate(cfg, model, model_le, physics, val_loader, device, t_val=t_val)
+            val_loss = validate(cfg, model, model_le, physics, val_loader, device, t_val=t_val, epoch=epoch+1)
             print(f"[Stage1] epoch={epoch+1} val_l1={val_loss:.6f} (t={t_val})")
             if best_val is None or val_loss < best_val:
                 best_val = val_loss
