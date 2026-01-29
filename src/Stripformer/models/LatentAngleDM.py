@@ -7,18 +7,10 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 """
-Latent Angle Degradation Diffusion (AngleDM)
+Latent Angle Degradation Diffusion (AngleDM) for Stripformer backbone.
 
-This implements a BlurDM-style dual diffusion in latent space:
-  - a learned "angle residual" (artifact) term
-  - a learned Gaussian noise term
-
-Angle schedule:
-  We map angle range (phi) -> a monotonic "scale" (alpha) so we can reuse the
-  same closed-form accumulation used in LatentExposureDiffusion.
-
-  Given phi_0 (full) > ... > phi_T (limited), we define:
-      alpha_t = phi_0 / phi_t   (alpha increases as angles decrease)
+This mirrors LatentExposureDiffusion (BlurDM) but interprets diffusion "time"
+as the reduction of CT scan angle range.
 """
 
 from __future__ import annotations
@@ -64,8 +56,6 @@ class LatentAngleDiffusion(nn.Module):
         betas = torch.linspace(beta_start, beta_end, self.total_timestamps, dtype=torch.float32)
 
         if phi_schedule is None and focus_table_path is not None:
-            # Focus table stores ascending ns (119..218). For diffusion we need
-            # "best -> worst" (218..119), so reverse it then resample to T+1.
             data = np.load(focus_table_path)
             if "ns" not in data:
                 raise KeyError(f"focus table {focus_table_path} missing key 'ns'")
@@ -85,7 +75,7 @@ class LatentAngleDiffusion(nn.Module):
                     f"{self.total_timestamps + 1}, got {phis.numel()}"
                 )
 
-        # Map angles -> monotonic scale (alpha). alpha_0 = 1, alpha increases with degradation.
+        # Map angles -> monotonic scale (alpha). alpha_0 = 1.
         alphas = phis[0] / phis.clamp_min(1e-8)
 
         betas_bar_list = self.get_beta_bar(alphas, betas)
@@ -97,7 +87,6 @@ class LatentAngleDiffusion(nn.Module):
         self.register_buffer("time_stamps_list", time_stamps_list)
 
     def get_beta_bar(self, alphas: torch.Tensor, betas: torch.Tensor) -> torch.Tensor:
-        # Same accumulation as BlurDM latent implementation.
         betas_bar_list = []
         for t in range(1, self.total_timestamps + 1):
             sub_betas = betas[:t]
@@ -120,7 +109,6 @@ class LatentAngleDiffusion(nn.Module):
         device = self.alphas.device
         b = cond.shape[0]
 
-        # Encode condition into latent prior space (same trick as BlurDM: pass cond twice).
         T_z = self.condition_encoder(cond, cond)
         noise_latent, noise = self.q_sample_d(T_z)
 
@@ -141,7 +129,6 @@ class LatentAngleDiffusion(nn.Module):
                 beta_t_minus1_bar = self.betas_bar[i - 2]
                 noise_cof = (self.alphas[i] * beta_t_bar) / self.alphas[i - 1] - beta_t_minus1_bar
 
-            # Reverse update: de-artifact (angle) + denoise in latent space.
             noise_latent = ((self.alphas[i] * (noise_latent) - pred_angle) / self.alphas[i - 1]) - (
                 noise_cof * pred_noise
             )

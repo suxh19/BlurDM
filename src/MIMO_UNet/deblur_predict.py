@@ -18,7 +18,7 @@ sys.path.append(parent_dir)
 from dataloader import Test_Loader
 from MIMO_UNet.models.MIMOUNetBlurDM import build_MIMOUnet_net
 from utils.utils import same_seed, count_parameters, judge_and_remove_module_dict
-from MIMO_UNet.models.LatentBlurDM import LatentExposureDiffusion
+from MIMO_UNet.models.LatentAngleDM import LatentAngleDiffusion
 
 @torch.no_grad()
 def predict(model, model_le, args, device):
@@ -75,6 +75,16 @@ if __name__ == "__main__":
     parser.add_argument("--model", default='MIMOUNetBlurDM', type=str, choices=['MIMO-UNet', 'MIMO-UNetPlus'])
     parser.add_argument("--dataset", default='GoPro', type=str, choices=['GoPro+HIDE', 'GoPro', 'HIDE', 'Realblur_J', 'RealBlur_R', 'RWBI'])
     parser.add_argument("--crop_size", default=None, type=int)
+    parser.add_argument("--total_timestamps", default=5, type=int)
+    parser.add_argument("--in_channels", default=3, type=int)
+    parser.add_argument("--pixel_unshuffle_factor", default=4, type=int)
+    parser.add_argument("--phi_max", default=180.0, type=float)
+    parser.add_argument("--phi_min", default=60.0, type=float)
+    parser.add_argument(
+        "--focus_table_path",
+        default="../code_diffusion/cold_diffuson/linear_indices_100.focus_table.npz",
+        type=str,
+    )
 
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -86,7 +96,14 @@ if __name__ == "__main__":
 
     # Model and optimizer
     net = build_MIMOUnet_net(args.model)
-    net_dm = LatentExposureDiffusion()
+    net_dm = LatentAngleDiffusion(
+        total_timestamps=args.total_timestamps,
+        phi_max=args.phi_max,
+        phi_min=args.phi_min,
+        focus_table_path=args.focus_table_path,
+        in_channels=args.in_channels,
+        pixel_unshuffle_factor=args.pixel_unshuffle_factor,
+    )
     
     load_model_state = torch.load(args.model_path)
     load_le_model_state = torch.load(args.model_dm_path)
@@ -116,7 +133,6 @@ if __name__ == "__main__":
 
     same_seed(2023)
     predict(net, net_dm, args=args, device=device)
-
 
 
 

@@ -25,7 +25,7 @@ parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
 from dataloader import Multi_GoPro_Loader
 from MIMO_UNet.models.MIMOUNetBlurDM import build_MIMOUnet_net
-from MIMO_UNet.models.LatentBlurDM import LatentExposureDiffusion
+from MIMO_UNet.models.LatentAngleDM import LatentAngleDiffusion
 from MIMO_UNet.models.losses import CharbonnierLoss, VGGPerceptualLoss, L1andPerceptualLoss
 from utils.utils import calc_psnr, same_seed, count_parameters, tensor2cv, AverageMeter, judge_and_remove_module_dict
 import torch.nn.functional as F
@@ -301,6 +301,16 @@ if __name__ == "__main__":
     parser.add_argument("--resume", default=None, type=str)
     parser.add_argument("--only_use_generate_data", action='store_true', help="only use generated data to train model.")
     parser.add_argument("--local_rank", default=os.getenv('LOCAL_RANK', -1), type=int)
+    parser.add_argument("--total_timestamps", default=5, type=int)
+    parser.add_argument("--in_channels", default=3, type=int)
+    parser.add_argument("--pixel_unshuffle_factor", default=4, type=int)
+    parser.add_argument("--phi_max", default=180.0, type=float)
+    parser.add_argument("--phi_min", default=60.0, type=float)
+    parser.add_argument(
+        "--focus_table_path",
+        default="../code_diffusion/cold_diffuson/linear_indices_100.focus_table.npz",
+        type=str,
+    )
     
     args = parser.parse_args()
 
@@ -309,7 +319,14 @@ if __name__ == "__main__":
         device = torch.device("cuda", args.local_rank)
         dist.init_process_group(backend="nccl", init_method='env://')
     net = build_MIMOUnet_net(args.model)
-    net_dm = LatentExposureDiffusion()
+    net_dm = LatentAngleDiffusion(
+        total_timestamps=args.total_timestamps,
+        phi_max=args.phi_max,
+        phi_min=args.phi_min,
+        focus_table_path=args.focus_table_path,
+        in_channels=args.in_channels,
+        pixel_unshuffle_factor=args.pixel_unshuffle_factor,
+    )
 
     load_model_state = torch.load(args.model_path)
     load_dm_model_state = torch.load(args.model_dm_path)
@@ -447,4 +464,3 @@ if __name__ == "__main__":
     
 
     
-

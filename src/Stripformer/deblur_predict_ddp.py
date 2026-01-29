@@ -20,7 +20,7 @@ sys.path.append(parent_dir)
 from dataloader import Test_Loader_DDP
 from torch.utils.data import Dataset, DataLoader
 from Stripformer.models.StripformerBlurDM import get_nets
-from Stripformer.models.LatentBlurDM import LatentExposureDiffusion
+from Stripformer.models.LatentAngleDM import LatentAngleDiffusion
 from utils.utils import calc_psnr, same_seed, count_parameters, tensor2cv, AverageMeter, judge_and_remove_module_dict
 from torchvision.transforms import functional as F
 from accelerate import Accelerator
@@ -89,6 +89,16 @@ if __name__ == "__main__":
     parser.add_argument("--model", default='StripformerPrior', type=str, choices=['StripformerPrior'])
     parser.add_argument("--dataset", default='GoPro', type=str, choices=['GoPro+HIDE', 'GoPro', 'HIDE', 'RealBlur_J', 'RealBlur_R', 'RWBI'])
     parser.add_argument("--crop_size", default=None, type=int)
+    parser.add_argument("--total_timestamps", default=5, type=int)
+    parser.add_argument("--in_channels", default=3, type=int)
+    parser.add_argument("--pixel_unshuffle_factor", default=4, type=int)
+    parser.add_argument("--phi_max", default=180.0, type=float)
+    parser.add_argument("--phi_min", default=60.0, type=float)
+    parser.add_argument(
+        "--focus_table_path",
+        default="../code_diffusion/cold_diffuson/linear_indices_100.focus_table.npz",
+        type=str,
+    )
 
     args = parser.parse_args()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -100,7 +110,14 @@ if __name__ == "__main__":
 
     # Model and optimizer
     net = get_nets(args.model)
-    net_dm = LatentExposureDiffusion(total_timestamps=5)
+    net_dm = LatentAngleDiffusion(
+        total_timestamps=args.total_timestamps,
+        phi_max=args.phi_max,
+        phi_min=args.phi_min,
+        focus_table_path=args.focus_table_path,
+        in_channels=args.in_channels,
+        pixel_unshuffle_factor=args.pixel_unshuffle_factor,
+    )
     
     # state_dict = torch.load(args.model_path)
     # state_dict = state_dict['params']
