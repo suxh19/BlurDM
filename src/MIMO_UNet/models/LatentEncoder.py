@@ -46,7 +46,7 @@ class LE_arch(nn.Module):
         n_feats: int = 64,
         n_encoder_res: int = 6,
         bn: bool = False,
-        in_channels: int = 3,
+        in_channels: int = 1,
         pixel_unshuffle_factor: int = 4,
     ):
         super(LE_arch, self).__init__()

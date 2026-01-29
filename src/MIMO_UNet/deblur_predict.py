@@ -76,7 +76,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", default='GoPro', type=str, choices=['GoPro+HIDE', 'GoPro', 'HIDE', 'Realblur_J', 'RealBlur_R', 'RWBI'])
     parser.add_argument("--crop_size", default=None, type=int)
     parser.add_argument("--total_timestamps", default=5, type=int)
-    parser.add_argument("--in_channels", default=3, type=int)
+    parser.add_argument("--in_channels", default=1, type=int)
     parser.add_argument("--pixel_unshuffle_factor", default=4, type=int)
     parser.add_argument("--phi_max", default=180.0, type=float)
     parser.add_argument("--phi_min", default=60.0, type=float)

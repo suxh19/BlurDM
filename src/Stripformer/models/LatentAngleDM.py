@@ -43,7 +43,7 @@ class LatentAngleDiffusion(nn.Module):
         phi_schedule: Optional[Sequence[float]] = None,
         beta_start: float = 0.0,
         beta_end: float = 0.02,
-        in_channels: int = 3,
+        in_channels: int = 1,
         pixel_unshuffle_factor: int = 4,
         spvised_mid_out: bool = False,
     ) -> None:

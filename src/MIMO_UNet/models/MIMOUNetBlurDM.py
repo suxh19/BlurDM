@@ -61,13 +61,14 @@ class AFF(nn.Module):
 
 
 class SCM(nn.Module):
-    def __init__(self, out_plane):
+    def __init__(self, out_plane, in_channels=1):
         super(SCM, self).__init__()
+        self.in_channels = in_channels
         self.main = nn.Sequential(
-            BasicConv(3, out_plane//4, kernel_size=3, stride=1, relu=True),
+            BasicConv(in_channels, out_plane//4, kernel_size=3, stride=1, relu=True),
             BasicConv(out_plane // 4, out_plane // 2, kernel_size=1, stride=1, relu=True),
             BasicConv(out_plane // 2, out_plane // 2, kernel_size=3, stride=1, relu=True),
-            BasicConv(out_plane // 2, out_plane-3, kernel_size=1, stride=1, relu=True)
+            BasicConv(out_plane // 2, out_plane - in_channels, kernel_size=1, stride=1, relu=True)
         )
 
         self.conv = BasicConv(out_plane, out_plane, kernel_size=1, stride=1, relu=False)
@@ -89,9 +90,10 @@ class FAM(nn.Module):
 
 
 class MIMOUNetPlusPrior(nn.Module):
-    def __init__(self, num_res = 20):
+    def __init__(self, num_res=20, in_channels=1):
         super(MIMOUNetPlusPrior, self).__init__()
         base_channel = 32
+        self.in_channels = in_channels
         self.Encoder = nn.ModuleList([
             EBlock(base_channel, num_res),
             EBlock(base_channel*2, num_res),
@@ -99,12 +101,12 @@ class MIMOUNetPlusPrior(nn.Module):
         ])
 
         self.feat_extract = nn.ModuleList([
-            BasicConv(3, base_channel, kernel_size=3, relu=True, stride=1),
+            BasicConv(in_channels, base_channel, kernel_size=3, relu=True, stride=1),
             BasicConv(base_channel, base_channel*2, kernel_size=3, relu=True, stride=2),
             BasicConv(base_channel*2, base_channel*4, kernel_size=3, relu=True, stride=2),
             BasicConv(base_channel*4, base_channel*2, kernel_size=4, relu=True, stride=2, transpose=True),
             BasicConv(base_channel*2, base_channel, kernel_size=4, relu=True, stride=2, transpose=True),
-            BasicConv(base_channel, 3, kernel_size=3, relu=False, stride=1)
+            BasicConv(base_channel, in_channels, kernel_size=3, relu=False, stride=1)
         ])
 
         self.Decoder = nn.ModuleList([
@@ -120,8 +122,8 @@ class MIMOUNetPlusPrior(nn.Module):
 
         self.ConvsOut = nn.ModuleList(
             [
-                BasicConv(base_channel * 4, 3, kernel_size=3, relu=False, stride=1),
-                BasicConv(base_channel * 2, 3, kernel_size=3, relu=False, stride=1),
+                BasicConv(base_channel * 4, in_channels, kernel_size=3, relu=False, stride=1),
+                BasicConv(base_channel * 2, in_channels, kernel_size=3, relu=False, stride=1),
             ]
         )
 
@@ -131,9 +133,9 @@ class MIMOUNetPlusPrior(nn.Module):
         ])
 
         self.FAM1 = FAM(base_channel * 4)
-        self.SCM1 = SCM(base_channel * 4)
+        self.SCM1 = SCM(base_channel * 4, in_channels=in_channels)
         self.FAM2 = FAM(base_channel * 2)
-        self.SCM2 = SCM(base_channel * 2)
+        self.SCM2 = SCM(base_channel * 2, in_channels=in_channels)
 
         self.drop1 = nn.Dropout2d(0.1)
         self.drop2 = nn.Dropout2d(0.1)
