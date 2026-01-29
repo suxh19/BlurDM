@@ -12,7 +12,7 @@ from torch.utils.data import Dataset
 import numpy as np
 import cv2
 import os
-from torchvision import transforms
+from torchvision import transforms  # type: ignore[import-untyped]
 import glob
 import random
 
@@ -121,9 +121,13 @@ class Multi_GoPro_Loader(Dataset):
         return len(self.sharp_list)
 
     def __getitem__(self, idx):
-        blur = cv2.imread(self.blur_list[idx]).astype(np.float32)
+        blur_img = cv2.imread(self.blur_list[idx])
+        assert blur_img is not None, f"Failed to load image: {self.blur_list[idx]}"
+        blur = blur_img.astype(np.float32)
         blur = cv2.cvtColor(blur, cv2.COLOR_BGR2RGB)
-        sharp = cv2.imread(self.sharp_list[idx]).astype(np.float32)
+        sharp_img = cv2.imread(self.sharp_list[idx])
+        assert sharp_img is not None, f"Failed to load image: {self.sharp_list[idx]}"
+        sharp = sharp_img.astype(np.float32)
         sharp = cv2.cvtColor(sharp, cv2.COLOR_BGR2RGB)
 
         sample = {'blur': blur,
@@ -155,9 +159,13 @@ class RealBlur_Loader(Dataset):
         return len(self.sharp_list)
 
     def __getitem__(self, idx):
-        blur = cv2.imread(self.blur_list[idx]).astype(np.float32)
+        blur_img = cv2.imread(self.blur_list[idx])
+        assert blur_img is not None, f"Failed to load image: {self.blur_list[idx]}"
+        blur = blur_img.astype(np.float32)
         blur = cv2.cvtColor(blur, cv2.COLOR_BGR2RGB)
-        sharp = cv2.imread(self.sharp_list[idx]).astype(np.float32)
+        sharp_img = cv2.imread(self.sharp_list[idx])
+        assert sharp_img is not None, f"Failed to load image: {self.sharp_list[idx]}"
+        sharp = sharp_img.astype(np.float32)
         sharp = cv2.cvtColor(sharp, cv2.COLOR_BGR2RGB)
 
         sample = {'blur': blur,
@@ -192,10 +200,14 @@ class Test_Loader_DDP(Dataset):
         return len(self.blur_list)
 
     def __getitem__(self, idx):
-        blur = cv2.imread(self.blur_list[idx]).astype(np.float32)
+        blur_img = cv2.imread(self.blur_list[idx])
+        assert blur_img is not None, f"Failed to load image: {self.blur_list[idx]}"
+        blur = blur_img.astype(np.float32)
         blur = cv2.cvtColor(blur, cv2.COLOR_BGR2RGB)
         if self.is_sharp_dir:
-            sharp = cv2.imread(self.sharp_list[idx]).astype(np.float32)
+            sharp_img = cv2.imread(self.sharp_list[idx])
+            assert sharp_img is not None, f"Failed to load image: {self.sharp_list[idx]}"
+            sharp = sharp_img.astype(np.float32)
             sharp = cv2.cvtColor(sharp, cv2.COLOR_BGR2RGB)
 
             sample = {'blur': blur,
@@ -239,10 +251,14 @@ class Test_Loader(Dataset):
         return len(self.blur_list)
 
     def __getitem__(self, idx):
-        blur = cv2.imread(self.blur_list[idx]).astype(np.float32)
+        blur_img = cv2.imread(self.blur_list[idx])
+        assert blur_img is not None, f"Failed to load image: {self.blur_list[idx]}"
+        blur = blur_img.astype(np.float32)
         blur = cv2.cvtColor(blur, cv2.COLOR_BGR2RGB)
         if self.is_sharp_dir:
-            sharp = cv2.imread(self.sharp_list[idx]).astype(np.float32)
+            sharp_img = cv2.imread(self.sharp_list[idx])
+            assert sharp_img is not None, f"Failed to load image: {self.sharp_list[idx]}"
+            sharp = sharp_img.astype(np.float32)
             sharp = cv2.cvtColor(sharp, cv2.COLOR_BGR2RGB)
 
             sample = {'blur': blur,
@@ -263,7 +279,9 @@ class Test_Loader(Dataset):
 
 def get_image(path):
     transform = transforms.Compose([Normalize(), ToTensor()])
-    image = cv2.imread(path).astype(np.float32)
+    image_data = cv2.imread(path)
+    assert image_data is not None, f"Failed to load image: {path}"
+    image = image_data.astype(np.float32)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     sample = {'image': image}
     sample = transform(sample)

@@ -10,9 +10,9 @@
 import torch
 import torch.nn as nn
 import torch
-import torchvision
+import torchvision  # type: ignore[import-untyped]
 import numpy as np
-import torchvision.transforms as transforms
+import torchvision.transforms as transforms  # type: ignore[import-untyped]
 
 class CharbonnierLoss(nn.Module):
     """Charbonnier Loss (L1)"""
@@ -74,12 +74,12 @@ class PerceptualLoss():
 		self.device = device
 		self.features = features
 		self.criterion = torch.nn.functional.l1_loss
-		self.contentFunc = self.contentFunc()
+		self.contentFunc = self._build_content_model()
 		self.transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
 
 
-	def contentFunc(self):
+	def _build_content_model(self):
 		cnn = torchvision.models.vgg19(pretrained=True).features
 		model = nn.Sequential()
 		for i,layer in enumerate(list(cnn)):
@@ -95,8 +95,8 @@ class PerceptualLoss():
 	def get_loss(self, fakeIm, realIm):
 		fakeIm = self.transform(fakeIm)
 		realIm = self.transform(realIm)
-		f_fake = self.contentFunc.forward(fakeIm)
-		f_real = self.contentFunc.forward(realIm)
+		f_fake = self.contentFunc(fakeIm)
+		f_real = self.contentFunc(realIm)
 		f_real_no_grad = f_real.detach()
 		loss = self.criterion(f_fake, f_real_no_grad)
 		return loss

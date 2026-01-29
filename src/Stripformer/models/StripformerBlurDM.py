@@ -12,7 +12,8 @@ import torch.nn as nn
 import math
 import numpy as np
 import torch.nn as nn
-from thop import profile
+import time
+from thop import profile  # type: ignore[import-untyped]
 class Embeddings(nn.Module):
     def __init__(self):
         super(Embeddings, self).__init__()

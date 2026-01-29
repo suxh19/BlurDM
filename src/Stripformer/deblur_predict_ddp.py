@@ -9,21 +9,21 @@
 
 import torch
 import torch.nn as nn
-from torchvision.utils import save_image
+from torchvision.utils import save_image  # type: ignore[import-untyped]
 import os
 import sys
-from tqdm import tqdm
+from tqdm import tqdm  # type: ignore[import-untyped]
 import argparse
 import matplotlib.pyplot as plt
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
-from dataloader import Test_Loader_DDP
+from dataloader import Test_Loader_DDP  # type: ignore[import-not-found]
 from torch.utils.data import Dataset, DataLoader
-from Stripformer.models.StripformerBlurDM import get_nets
-from Stripformer.models.LatentAngleDM import LatentAngleDiffusion
-from utils.utils import calc_psnr, same_seed, count_parameters, tensor2cv, AverageMeter, judge_and_remove_module_dict
-from torchvision.transforms import functional as F
-from accelerate import Accelerator
+from Stripformer.models.StripformerBlurDM import get_nets  # type: ignore[import-not-found]
+from Stripformer.models.LatentAngleDM import LatentAngleDiffusion  # type: ignore[import-not-found]
+from utils.utils import calc_psnr, same_seed, count_parameters, tensor2cv, AverageMeter, judge_and_remove_module_dict  # type: ignore[import-not-found]
+from torchvision.transforms import functional as F  # type: ignore[import-untyped]
+from accelerate import Accelerator  # type: ignore[import-untyped]
 
 @torch.no_grad()
 def predict(model, model_dm, args, device):

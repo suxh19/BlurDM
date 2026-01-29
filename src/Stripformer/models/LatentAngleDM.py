@@ -27,6 +27,12 @@ from .LatentEncoder import LE_arch
 
 
 class LatentAngleDiffusion(nn.Module):
+    # Type annotations for registered buffers
+    phis: torch.Tensor
+    alphas: torch.Tensor
+    betas_bar: torch.Tensor
+    time_stamps_list: torch.Tensor
+    
     def __init__(
         self,
         total_timestamps: int = 5,
@@ -106,6 +112,11 @@ class LatentAngleDiffusion(nn.Module):
         pred_angle_list = []
         pred_noise_list = []
 
+        # Type assertions for registered buffers
+        assert isinstance(self.alphas, torch.Tensor)
+        assert isinstance(self.betas_bar, torch.Tensor)
+        assert isinstance(self.time_stamps_list, torch.Tensor)
+        
         device = self.alphas.device
         b = cond.shape[0]
 
@@ -113,7 +124,7 @@ class LatentAngleDiffusion(nn.Module):
         noise_latent, noise = self.q_sample_d(T_z)
 
         for i in self.time_stamps_list:
-            t = torch.full((b,), i, device=device, dtype=torch.long)
+            t = torch.full((b,), i.item(), device=device, dtype=torch.long)
 
             pred_noise = self.noise_model(noise_latent, t, T_z)
             pred_angle = self.angle_model(noise_latent, t, T_z)

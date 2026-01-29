@@ -39,12 +39,13 @@ def same_seed(seed):
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def tensor2cv(input: torch.Tensor):
-    input = input.clone().detach().cpu().squeeze()
-    input = input.mul_(255).add_(0.5).clamp_(0,255).permute(1, 2, 0).type(torch.uint8).numpy()
-    input = cv2.cvtColor(input, cv2.COLOR_RGB2BGR)
+def tensor2cv(input: torch.Tensor) -> np.ndarray:
+    input_tensor: torch.Tensor = input.clone().detach().cpu().squeeze()
+    input_tensor = input_tensor.mul_(255).add_(0.5).clamp_(0, 255).permute(1, 2, 0).type(torch.uint8)
+    input_np: np.ndarray = input_tensor.numpy()
+    input_np = cv2.cvtColor(input_np, cv2.COLOR_RGB2BGR)
 
-    return input
+    return input_np
 
 def create_gaussian_noise(image_tensor_size, mean=0, std=1, num_channels=4):
     """

@@ -9,7 +9,7 @@
 
 import torch
 import torch.nn as nn
-from thop import profile
+from thop import profile  # type: ignore[import-untyped]
 from einops import rearrange
 
 
@@ -90,15 +90,16 @@ class LE_arch(nn.Module):
     
 
 if __name__ == '__main__':
-    net = LE_CNN(
+    net = LE_arch(
     ).cuda()
 
     input = torch.randn((1, 3, 256, 256)).cuda()
+    gt = torch.randn((1, 3, 256, 256)).cuda()
     # flops, params = profile(net, (input, ))
     # print('FLOPs = ' + str(flops / 1000 ** 3) + 'G')
     # print('Params = ' + str(params / 1000 ** 2) + 'M')
 
-    out = net(input)
+    out = net(input, gt)
     print(out.shape)
 
     test = torch.randn((1, 16, 256))
