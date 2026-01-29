@@ -90,6 +90,7 @@ class TimeConditionedUNet(nn.Module):
         self.max_t = max_t
 
         temb_dim = base_channels * 4
+        self._temb_dim_in = base_channels  # Store for forward pass
         self.temb = nn.Sequential(
             nn.Linear(base_channels, temb_dim),
             nn.SiLU(),
@@ -132,13 +133,13 @@ class TimeConditionedUNet(nn.Module):
     def forward(self, x: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         # Normalize t into a stable range for embedding.
         t = t.clamp(min=0, max=self.max_t).to(dtype=torch.float32) / float(self.max_t)
-        temb = timestep_embedding(t, self.temb[0].in_features)
+        temb = timestep_embedding(t, self._temb_dim_in)
         temb = self.temb(temb)
 
         h = self.conv_in(x)
         skips: list[torch.Tensor] = []
         for level, blocks in enumerate(self.down_blocks):
-            for blk in blocks:
+            for blk in blocks:  # type: ignore[union-attr]
                 h = blk(h, temb)
             skips.append(h)
             if level != len(self.down_blocks) - 1:
@@ -150,7 +151,7 @@ class TimeConditionedUNet(nn.Module):
         for level, blocks in enumerate(self.up_blocks):
             skip = skips.pop()
             h = torch.cat([h, skip], dim=1)
-            for blk in blocks:
+            for blk in blocks:  # type: ignore[union-attr]
                 h = blk(h, temb)
             if level != len(self.up_blocks) - 1:
                 h = self.upsamples[level](h)
