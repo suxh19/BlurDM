@@ -12,15 +12,25 @@ from tqdm import tqdm
 
 from angle_diffusion.config import Stage1Config, load_stage1_config
 from angle_diffusion.data.ct_dataset import CTDataset
-from angle_diffusion.models.time_unet import TimeConditionedUNet
+from angle_diffusion.models.mimo_unet import build_MIMOUnet_net
+from angle_diffusion.models.latent_encoder import LE_arch
+from angle_diffusion.models.losses import CharbonnierLoss, L1andPerceptualLoss
 from angle_diffusion.physics.ct_physics import CT_Physics
 from angle_diffusion.utils.misc import ensure_dir, save_yaml, seed_everything, to_batch_numpy
+
+
+def rfft(x: torch.Tensor, d: int) -> torch.Tensor:
+    """FFT function compatible with both old and new PyTorch versions."""
+    t = torch.fft.fft(x, dim=(-d))
+    r = torch.stack((t.real, t.imag), -1)
+    return r
 
 
 def save_checkpoint(
     out_dir: str,
     name: str,
     model: torch.nn.Module,
+    model_le: torch.nn.Module,
     optimizer: torch.optim.Optimizer,
     epoch: int,
     best_val: float | None = None,
@@ -29,6 +39,7 @@ def save_checkpoint(
     payload = {
         "epoch": epoch,
         "model": model.state_dict(),
+        "model_le": model_le.state_dict(),
         "optimizer": optimizer.state_dict(),
         "best_val": best_val,
     }
@@ -40,12 +51,14 @@ def save_checkpoint(
 def validate(
     cfg: Stage1Config,
     model: torch.nn.Module,
+    model_le: torch.nn.Module,
     physics: CT_Physics,
     loader: DataLoader,
     device: torch.device,
     t_val: int,
 ) -> float:
     model.eval()
+    model_le.eval()
     losses = []
     for x0, _ in loader:
         x0 = x0.to(device)  # [B,1,H,W] in [0,1]
@@ -56,7 +69,12 @@ def validate(
         x_t_np = physics.degrade_batch(x0_np, int(t_val))
         x_t = torch.from_numpy(x_t_np).unsqueeze(1).to(device)
 
-        pred = model(x_t, t)
+        # Extract latent prior
+        z_pred = model_le(x_t, x0)
+        # Get multi-scale predictions
+        outputs = model(x_t, z_pred)
+        # Use full-scale output for validation
+        pred = outputs[2]
         losses.append(F.l1_loss(pred, x0).item())
     return float(np.mean(losses)) if losses else 0.0
 
@@ -79,16 +97,34 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
         preset=cfg.config_preset,
     )
 
-    model = TimeConditionedUNet(
-        in_channels=1,
-        out_channels=1,
-        base_channels=cfg.base_channels,
-        channel_mults=cfg.channel_mults,
-        num_res_blocks=cfg.num_res_blocks,
-        max_t=cfg.max_t,
+    # Initialize MIMO-UNet model
+    model = build_MIMOUnet_net(
+        "MIMOUNetBlurDM",
+        num_res=cfg.num_res,
+        in_channels=cfg.in_channels,
     ).to(device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+    # Initialize LatentEncoder
+    model_le = LE_arch(
+        n_feats=cfg.n_feats,
+        n_encoder_res=cfg.n_encoder_res,
+        in_channels=cfg.in_channels,
+        pixel_unshuffle_factor=cfg.pixel_unshuffle_factor,
+    ).to(device)
+
+    # Optimizer for both models
+    optimizer = torch.optim.AdamW(
+        list(model.parameters()) + list(model_le.parameters()), 
+        lr=cfg.lr
+    )
+
+    # Loss criterion
+    if cfg.criterion == "l1":
+        criterion = CharbonnierLoss().to(device)
+    elif cfg.criterion == "l1perceptual":
+        criterion = L1andPerceptualLoss(gamma=cfg.gamma).to(device)
+    else:
+        raise ValueError(f"Unsupported criterion: {cfg.criterion}")
 
     train_ds = CTDataset(cfg.data_root, split=cfg.train_split, max_samples=cfg.max_samples)
     val_ds = CTDataset(cfg.data_root, split=cfg.val_split, max_samples=cfg.max_samples)
@@ -115,6 +151,7 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
     if resume:
         ckpt = torch.load(resume, map_location=device, weights_only=False)
         model.load_state_dict(ckpt["model"])
+        model_le.load_state_dict(ckpt["model_le"])
         optimizer.load_state_dict(ckpt["optimizer"])
         start_epoch = int(ckpt.get("epoch", 0))
         best_val = ckpt.get("best_val")
@@ -127,6 +164,7 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
 
     for epoch in range(start_epoch, cfg.epochs):
         model.train()
+        model_le.train()
         losses = []
         pbar = tqdm(train_loader, desc=f"Stage1 Ep {epoch+1}/{cfg.epochs}")
 
@@ -136,15 +174,44 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
 
             # Keep one degradation level per batch for better ASTRA throughput.
             t_val = int(torch.randint(t_min, t_max + 1, (1,), device=device).item())
-            t = torch.full((bs,), t_val, device=device, dtype=torch.long)
 
             with torch.no_grad():
                 x0_np = to_batch_numpy(x0)
                 x_t_np = physics.degrade_batch(x0_np, t_val)
                 x_t = torch.from_numpy(x_t_np).unsqueeze(1).to(device)
 
-            pred = model(x_t, t)
-            loss = F.l1_loss(pred, x0)
+            # Extract latent prior from degraded and ground truth images
+            z_pred = model_le(x_t, x0)
+            
+            # Get multi-scale predictions [1/4x, 1/2x, 1x]
+            outputs = model(x_t, z_pred)
+            outputs = [output.clamp(-0.5, 0.5) for output in outputs]
+            
+            # Multi-scale ground truth
+            gt_img2 = F.interpolate(x0, scale_factor=0.5, mode='bilinear')
+            gt_img4 = F.interpolate(x0, scale_factor=0.25, mode='bilinear')
+            
+            # Content loss at each scale
+            l1 = criterion(outputs[0], gt_img4)
+            l2 = criterion(outputs[1], gt_img2)
+            l3 = criterion(outputs[2], x0)
+            loss_content = l1 + l2 + l3
+            
+            # FFT loss at each scale
+            label_fft1 = rfft(gt_img4, 2)
+            pred_fft1 = rfft(outputs[0], 2)
+            label_fft2 = rfft(gt_img2, 2)
+            pred_fft2 = rfft(outputs[1], 2)
+            label_fft3 = rfft(x0, 2)
+            pred_fft3 = rfft(outputs[2], 2)
+            
+            f1 = criterion(pred_fft1, label_fft1)
+            f2 = criterion(pred_fft2, label_fft2)
+            f3 = criterion(pred_fft3, label_fft3)
+            loss_fft = f1 + f2 + f3
+            
+            # Total loss
+            loss = loss_content + 0.1 * loss_fft
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -154,18 +221,18 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
             pbar.set_postfix(loss=float(np.mean(losses)), t=t_val, ns=physics.t_to_num_sources(t_val))
 
         if (epoch + 1) % cfg.save_interval == 0:
-            save_checkpoint(out_dir, f"epoch_{epoch+1:04d}.pth", model, optimizer, epoch + 1, best_val)
+            save_checkpoint(out_dir, f"epoch_{epoch+1:04d}.pth", model, model_le, optimizer, epoch + 1, best_val)
 
         if (epoch + 1) % cfg.val_interval == 0:
             # Use a mid-hardness validation point by default.
             t_val = int((t_min + t_max) // 2)
-            val_loss = validate(cfg, model, physics, val_loader, device, t_val=t_val)
+            val_loss = validate(cfg, model, model_le, physics, val_loader, device, t_val=t_val)
             print(f"[Stage1] epoch={epoch+1} val_l1={val_loss:.6f} (t={t_val})")
             if best_val is None or val_loss < best_val:
                 best_val = val_loss
-                save_checkpoint(out_dir, "best.pth", model, optimizer, epoch + 1, best_val)
+                save_checkpoint(out_dir, "best.pth", model, model_le, optimizer, epoch + 1, best_val)
 
-    save_checkpoint(out_dir, "last.pth", model, optimizer, cfg.epochs, best_val)
+    save_checkpoint(out_dir, "last.pth", model, model_le, optimizer, cfg.epochs, best_val)
 
 
 def main() -> None:

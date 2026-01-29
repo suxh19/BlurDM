@@ -1,7 +1,7 @@
 data:
-  root: "../code_diffusion/dataset_che"
+  root: "./dataset"
   train_split: "train"
-  val_split: "val"
+  val_split: "test"
   max_samples: null
 
 training:
@@ -14,7 +14,7 @@ training:
   seed: 2023
 
 physics:
-  focus_table_path: "../code_diffusion/cold_diffuson/linear_indices_100.focus_table.npz"
+  focus_table_path: "./dataset/linear_indices_100.focus_table.npz"
   max_t: 100
   t_min: 1
   t_max: 100
@@ -23,10 +23,13 @@ physics:
 
 model:
   image_size: 512
-  base_channels: 64
-  channel_mults: [1, 2, 4, 8]
-  num_res_blocks: 2
+  num_res: 20 # MIMO-UNet residual blocks
+  in_channels: 1 # CT single channel
+  n_feats: 64 # LatentEncoder features
+  n_encoder_res: 6 # LatentEncoder residual blocks
+  pixel_unshuffle_factor: 4
+  criterion: "l1" # Loss function: 'l1', 'perceptual', or 'l1perceptual'
+  gamma: 0.5 # Perceptual loss weight (if using l1perceptual)
 
 output:
-  out_dir: "./angle_diffusion_runs/stage1"
-
+  out_dir: "./angle_diffusion/output/stage1"

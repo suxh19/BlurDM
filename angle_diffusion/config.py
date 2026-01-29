@@ -30,11 +30,19 @@ class Stage1Config:
     sart_iterations: int
     config_preset: str
 
-    # Model
+    # Model - MIMO-UNet
     image_size: int
-    base_channels: int
-    channel_mults: list[int]
-    num_res_blocks: int
+    num_res: int  # Number of residual blocks in MIMO-UNet
+    in_channels: int  # Number of input channels (1 for CT)
+    
+    # Model - LatentEncoder
+    n_feats: int  # Number of features in LatentEncoder
+    n_encoder_res: int  # Number of residual blocks in encoder
+    pixel_unshuffle_factor: int
+    
+    # Loss
+    criterion: str  # 'l1', 'perceptual', 'l1perceptual'
+    gamma: float  # Perceptual loss weight
 
     # Output
     out_dir: str
@@ -80,8 +88,12 @@ def load_stage1_config(path: str | Path) -> Stage1Config:
         sart_iterations=cfg["physics"]["sart_iterations"],
         config_preset=cfg["physics"]["config_preset"],
         image_size=cfg["model"]["image_size"],
-        base_channels=cfg["model"].get("base_channels", 64),
-        channel_mults=list(cfg["model"].get("channel_mults", [1, 2, 4, 8])),
-        num_res_blocks=cfg["model"].get("num_res_blocks", 2),
+        num_res=cfg["model"].get("num_res", 20),
+        in_channels=cfg["model"].get("in_channels", 1),
+        n_feats=cfg["model"].get("n_feats", 64),
+        n_encoder_res=cfg["model"].get("n_encoder_res", 6),
+        pixel_unshuffle_factor=cfg["model"].get("pixel_unshuffle_factor", 4),
+        criterion=cfg["model"].get("criterion", "l1"),
+        gamma=cfg["model"].get("gamma", 0.5),
         out_dir=cfg["output"]["out_dir"],
     )
