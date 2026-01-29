@@ -12,7 +12,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .layers import BasicConv, ResBlock
-from thop import profile
+from thop import profile  # type: ignore
 import time
 
 class EBlock(nn.Module):

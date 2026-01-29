@@ -9,9 +9,7 @@
 
 import torch
 import torch.nn as nn
-import sys
-sys.path.append('/home/jthe/FFTformer')
-from thop import profile
+from thop import profile  # type: ignore
 from einops import rearrange
 
 

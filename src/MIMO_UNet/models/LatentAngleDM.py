@@ -111,21 +111,31 @@ class LatentAngleDiffusion(nn.Module):
 
     def q_sample_d(self, latent: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         noise = torch.randn_like(latent)
-        return latent + self.betas_bar[self.total_timestamps - 1] * noise, noise
+        betas_bar = self.betas_bar
+        assert isinstance(betas_bar, torch.Tensor)
+        return latent + betas_bar[self.total_timestamps - 1] * noise, noise
 
     def forward(self, cond: torch.Tensor):
         pred_angle_list = []
         pred_noise_list = []
 
-        device = self.alphas.device
+        # Access registered buffers with type assertions
+        alphas = self.alphas
+        betas_bar = self.betas_bar
+        time_stamps_list = self.time_stamps_list
+        assert isinstance(alphas, torch.Tensor)
+        assert isinstance(betas_bar, torch.Tensor)
+        assert isinstance(time_stamps_list, torch.Tensor)
+
+        device = alphas.device
         b = cond.shape[0]
 
         # Encode condition into latent prior space (same trick as BlurDM: pass cond twice).
         T_z = self.condition_encoder(cond, cond)
         noise_latent, noise = self.q_sample_d(T_z)
 
-        for i in self.time_stamps_list:
-            t = torch.full((b,), i, device=device, dtype=torch.long)
+        for i in time_stamps_list:
+            t = torch.full((b,), i.item(), device=device, dtype=torch.long)
 
             pred_noise = self.noise_model(noise_latent, t, T_z)
             pred_angle = self.angle_model(noise_latent, t, T_z)
@@ -134,15 +144,16 @@ class LatentAngleDiffusion(nn.Module):
                 pred_angle_list.append(pred_angle)
                 pred_noise_list.append(pred_noise)
 
-            if int(i.item()) == 1:
-                noise_cof = self.betas_bar[i - 1]
+            i_val = int(i.item())
+            if i_val == 1:
+                noise_cof = betas_bar[i_val - 1]
             else:
-                beta_t_bar = self.betas_bar[i - 1]
-                beta_t_minus1_bar = self.betas_bar[i - 2]
-                noise_cof = (self.alphas[i] * beta_t_bar) / self.alphas[i - 1] - beta_t_minus1_bar
+                beta_t_bar = betas_bar[i_val - 1]
+                beta_t_minus1_bar = betas_bar[i_val - 2]
+                noise_cof = (alphas[i_val] * beta_t_bar) / alphas[i_val - 1] - beta_t_minus1_bar
 
             # Reverse update: de-artifact (angle) + denoise in latent space.
-            noise_latent = ((self.alphas[i] * (noise_latent) - pred_angle) / self.alphas[i - 1]) - (
+            noise_latent = ((alphas[i_val] * (noise_latent) - pred_angle) / alphas[i_val - 1]) - (
                 noise_cof * pred_noise
             )
 

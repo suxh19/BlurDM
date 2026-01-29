@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 import torch.nn as nn
 import torch.optim as optim
 import sys
-import tqdm
+import tqdm  # type: ignore
 import cv2
 import os
 import argparse
@@ -23,27 +23,25 @@ from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
 parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(parent_dir)
-from dataloader import Multi_GoPro_Loader, RealBlur_Loader
-from MIMO_UNet.models.MIMOUNetBlurDM import build_MIMOUnet_net
-from MIMO_UNet.models.LatentEncoder import LE_arch
-from MIMO_UNet.models.losses import CharbonnierLoss, VGGPerceptualLoss, L1andPerceptualLoss
-from utils.utils import calc_psnr, same_seed, count_parameters, tensor2cv, AverageMeter, judge_and_remove_module_dict
+from dataloader import Multi_GoPro_Loader, RealBlur_Loader  # type: ignore
+from MIMO_UNet.models.MIMOUNetBlurDM import build_MIMOUnet_net  # type: ignore
+from MIMO_UNet.models.LatentEncoder import LE_arch  # type: ignore
+from MIMO_UNet.models.losses import CharbonnierLoss, VGGPerceptualLoss, L1andPerceptualLoss  # type: ignore
+from utils.utils import calc_psnr, same_seed, count_parameters, tensor2cv, AverageMeter, judge_and_remove_module_dict  # type: ignore
 import torch.nn.functional as F
-import pyiqa
-from tensorboardX import SummaryWriter
+import pyiqa  # type: ignore
+from tensorboardX import SummaryWriter  # type: ignore
 
 cv2.setNumThreads(0)
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
 torch.backends.cudnn.deterministic = True
 
-try:
-    from torch import rfft
-except ImportError:
-    def rfft(x, d):
-        t = torch.fft.fft(x, dim=(-d))
-        r = torch.stack((t.real, t.imag), -1)
-        return r
+def rfft(x: torch.Tensor, d: int) -> torch.Tensor:
+    """FFT function compatible with both old and new PyTorch versions."""
+    t = torch.fft.fft(x, dim=(-d))
+    r = torch.stack((t.real, t.imag), -1)
+    return r
 
 class Trainer():
     def __init__(self, dataloader_train, dataloader_val, model, model_le, optimizer, scheduler, args, writer) -> None:
@@ -80,7 +78,7 @@ class Trainer():
             print('Model:', self.args.model_name)
             print(f"Optimizer:{self.optimizer.__class__.__name__}")
             print(f"Scheduler:{self.scheduler.__class__.__name__ if self.scheduler else None}")
-            print(f"Train Data length:{len(dataloader_train.dataset)}")
+            print(f"Train Data length:{len(dataloader_train.dataset)}")  # type: ignore[arg-type]
             print("start train !!")
             print('###########################################')
 
@@ -396,7 +394,7 @@ if __name__ == "__main__":
     elif (dataset_name == "Realblur_J") or (dataset_name == "Realblur_R"):
         Train_set = RealBlur_Loader(data_path=train_data_path, mode="train", crop_size=args.crop_size, ZeroToOne=False)
     
-    train_sampler = DistributedSampler(Train_set)
+    train_sampler: DistributedSampler[tuple[torch.Tensor, ...]] = DistributedSampler(Train_set)
     dataloader_train = DataLoader(Train_set, sampler=train_sampler, batch_size=args.batch_size//num_gpus, num_workers=8, pin_memory=True)
 
     # Val loader
@@ -419,7 +417,7 @@ if __name__ == "__main__":
         logging.info(f'model parameters: {count_parameters(net)}')
         logging.info(f'latent encoder parameters: {count_parameters(net_le)}')
         logging.info(f"Optimizer:{optimizer.__class__.__name__}")
-        logging.info(f"Train Data length:{len(dataloader_train.dataset)}")
+        logging.info(f"Train Data length:{len(dataloader_train.dataset)}")  # type: ignore[arg-type]
 
         writer = SummaryWriter(os.path.join("MIMO_log", args.model_name))
         writer.add_text("args", str(args))

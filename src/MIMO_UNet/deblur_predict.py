@@ -8,17 +8,15 @@
 
 
 import torch
-from torchvision.utils import save_image
+from torchvision.utils import save_image  # type: ignore
 import os
 import sys
-import tqdm
+import tqdm  # type: ignore
 import argparse
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.append(parent_dir)
-from dataloader import Test_Loader
-from MIMO_UNet.models.MIMOUNetBlurDM import build_MIMOUnet_net
-from utils.utils import same_seed, count_parameters, judge_and_remove_module_dict
-from MIMO_UNet.models.LatentAngleDM import LatentAngleDiffusion
+from dataloader import Test_Loader  # type: ignore
+from MIMO_UNet.models.MIMOUNetBlurDM import build_MIMOUnet_net  # type: ignore
+from utils.utils import same_seed, count_parameters, judge_and_remove_module_dict  # type: ignore
+from MIMO_UNet.models.LatentAngleDM import LatentAngleDiffusion  # type: ignore
 
 @torch.no_grad()
 def predict(model, model_le, args, device):
@@ -43,8 +41,8 @@ def predict(model, model_le, args, device):
 
         for idx in tq:
             sample = dataset[idx]
-            input = sample['blur'].unsqueeze(0).to(device)
-            label = sample['sharp'].unsqueeze(0).to(device)
+            input = sample['blur'].unsqueeze(0).to(device)  # type: ignore[union-attr]
+            label = sample['sharp'].unsqueeze(0).to(device)  # type: ignore[union-attr]
 
             b, c, h, w = input.shape
             factor=8
