@@ -57,6 +57,7 @@ def validate(
     device: torch.device,
     t_val: int,
     epoch: int | None = None,
+    out_dir: str | None = None,
 ) -> float:
     model.eval()
     model_le.eval()
@@ -100,14 +101,14 @@ def validate(
                 })
     
     # 保存可视化结果
-    if cfg.val_visualize and vis_images and epoch is not None:
-        save_visualizations(cfg, vis_images, epoch, t_val)
+    if cfg.val_visualize and vis_images and epoch is not None and out_dir is not None:
+        save_visualizations(out_dir, vis_images, epoch, t_val)
     
     return float(np.mean(losses)) if losses else 0.0
 
 
 def save_visualizations(
-    cfg: Stage1Config, 
+    out_dir: str,
     vis_images: list[dict], 
     epoch: int, 
     t_val: int
@@ -116,7 +117,7 @@ def save_visualizations(
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
     
-    vis_dir = os.path.join(cfg.out_dir, "logs", "visualizations", f"epoch_{epoch:04d}")
+    vis_dir = os.path.join(out_dir, "logs", "visualizations", f"epoch_{epoch:04d}")
     ensure_dir(vis_dir)
     
     for idx, img_dict in enumerate(vis_images):
@@ -315,7 +316,7 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
         if (epoch + 1) % cfg.val_interval == 0:
             # Use a mid-hardness validation point by default.
             t_val = int((t_min + t_max) // 2)
-            val_loss = validate(cfg, model, model_le, physics, val_loader, device, t_val=t_val, epoch=epoch+1)
+            val_loss = validate(cfg, model, model_le, physics, val_loader, device, t_val=t_val, epoch=epoch+1, out_dir=out_dir)
             print(f"[Stage1] epoch={epoch+1} val_l1={val_loss:.6f} (t={t_val})")
             if best_val is None or val_loss < best_val:
                 best_val = val_loss
