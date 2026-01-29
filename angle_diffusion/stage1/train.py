@@ -1,0 +1,183 @@
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+
+from angle_diffusion.config import Stage1Config, load_stage1_config
+from angle_diffusion.data.ct_dataset import CTDataset
+from angle_diffusion.models.time_unet import TimeConditionedUNet
+from angle_diffusion.physics.ct_physics import CT_Physics
+from angle_diffusion.utils.misc import ensure_dir, save_yaml, seed_everything, to_batch_numpy
+
+
+def save_checkpoint(
+    out_dir: str,
+    name: str,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    epoch: int,
+    best_val: float | None = None,
+) -> str:
+    path = os.path.join(out_dir, "checkpoints", name)
+    payload = {
+        "epoch": epoch,
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "best_val": best_val,
+    }
+    torch.save(payload, path)
+    return path
+
+
+@torch.no_grad()
+def validate(
+    cfg: Stage1Config,
+    model: torch.nn.Module,
+    physics: CT_Physics,
+    loader: DataLoader,
+    device: torch.device,
+    t_val: int,
+) -> float:
+    model.eval()
+    losses = []
+    for x0, _ in loader:
+        x0 = x0.to(device)  # [B,1,H,W] in [0,1]
+        bs = x0.shape[0]
+        t = torch.full((bs,), int(t_val), device=device, dtype=torch.long)
+
+        x0_np = to_batch_numpy(x0)
+        x_t_np = physics.degrade_batch(x0_np, int(t_val))
+        x_t = torch.from_numpy(x_t_np).unsqueeze(1).to(device)
+
+        pred = model(x_t, t)
+        losses.append(F.l1_loss(pred, x0).item())
+    return float(np.mean(losses)) if losses else 0.0
+
+
+def train(cfg: Stage1Config, resume: str | None = None) -> None:
+    seed_everything(cfg.seed)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    out_dir = ensure_dir(cfg.out_dir)
+    ensure_dir(os.path.join(out_dir, "checkpoints"))
+    ensure_dir(os.path.join(out_dir, "logs"))
+    save_yaml(cfg, os.path.join(out_dir, "stage1_config_resolved.yaml"))
+
+    print(f"[Stage1] device={device}")
+    print(f"[Stage1] out_dir={out_dir}")
+
+    physics = CT_Physics(
+        focus_table_path=cfg.focus_table_path,
+        sart_iterations=cfg.sart_iterations,
+        preset=cfg.config_preset,
+    )
+
+    model = TimeConditionedUNet(
+        in_channels=1,
+        out_channels=1,
+        base_channels=cfg.base_channels,
+        channel_mults=cfg.channel_mults,
+        num_res_blocks=cfg.num_res_blocks,
+        max_t=cfg.max_t,
+    ).to(device)
+
+    optimizer = torch.optim.AdamW(model.parameters(), lr=cfg.lr)
+
+    train_ds = CTDataset(cfg.data_root, split=cfg.train_split, max_samples=cfg.max_samples)
+    val_ds = CTDataset(cfg.data_root, split=cfg.val_split, max_samples=cfg.max_samples)
+
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=cfg.batch_size,
+        shuffle=True,
+        num_workers=cfg.num_workers,
+        pin_memory=True,
+        drop_last=True,
+    )
+    val_loader = DataLoader(
+        val_ds,
+        batch_size=cfg.batch_size,
+        shuffle=False,
+        num_workers=cfg.num_workers,
+        pin_memory=True,
+        drop_last=False,
+    )
+
+    start_epoch = 0
+    best_val = None
+    if resume:
+        ckpt = torch.load(resume, map_location=device, weights_only=False)
+        model.load_state_dict(ckpt["model"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        start_epoch = int(ckpt.get("epoch", 0))
+        best_val = ckpt.get("best_val")
+        print(f"[Stage1] resumed from {resume} @ epoch={start_epoch}")
+
+    t_min = int(max(0, cfg.t_min))
+    t_max = int(min(cfg.max_t, cfg.t_max))
+    if t_min > t_max:
+        raise ValueError(f"t_min({t_min}) > t_max({t_max})")
+
+    for epoch in range(start_epoch, cfg.epochs):
+        model.train()
+        losses = []
+        pbar = tqdm(train_loader, desc=f"Stage1 Ep {epoch+1}/{cfg.epochs}")
+
+        for x0, _ in pbar:
+            x0 = x0.to(device)
+            bs = x0.shape[0]
+
+            # Keep one degradation level per batch for better ASTRA throughput.
+            t_val = int(torch.randint(t_min, t_max + 1, (1,), device=device).item())
+            t = torch.full((bs,), t_val, device=device, dtype=torch.long)
+
+            with torch.no_grad():
+                x0_np = to_batch_numpy(x0)
+                x_t_np = physics.degrade_batch(x0_np, t_val)
+                x_t = torch.from_numpy(x_t_np).unsqueeze(1).to(device)
+
+            pred = model(x_t, t)
+            loss = F.l1_loss(pred, x0)
+
+            optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+            optimizer.step()
+
+            losses.append(loss.item())
+            pbar.set_postfix(loss=float(np.mean(losses)), t=t_val, ns=physics.t_to_num_sources(t_val))
+
+        if (epoch + 1) % cfg.save_interval == 0:
+            save_checkpoint(out_dir, f"epoch_{epoch+1:04d}.pth", model, optimizer, epoch + 1, best_val)
+
+        if (epoch + 1) % cfg.val_interval == 0:
+            # Use a mid-hardness validation point by default.
+            t_val = int((t_min + t_max) // 2)
+            val_loss = validate(cfg, model, physics, val_loader, device, t_val=t_val)
+            print(f"[Stage1] epoch={epoch+1} val_l1={val_loss:.6f} (t={t_val})")
+            if best_val is None or val_loss < best_val:
+                best_val = val_loss
+                save_checkpoint(out_dir, "best.pth", model, optimizer, epoch + 1, best_val)
+
+    save_checkpoint(out_dir, "last.pth", model, optimizer, cfg.epochs, best_val)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True, type=str)
+    parser.add_argument("--resume", default=None, type=str)
+    args = parser.parse_args()
+
+    cfg = load_stage1_config(Path(args.config))
+    train(cfg, resume=args.resume)
+
+
+if __name__ == "__main__":
+    main()
+
