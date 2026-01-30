@@ -16,6 +16,15 @@ class CharbonnierLoss(nn.Module):
         return loss
 
 
+class MSELoss(nn.Module):
+    """Mean Squared Error Loss (L2)"""
+
+    def __init__(self):
+        super(MSELoss, self).__init__()
+
+    def forward(self, x, y):
+        return torch.mean((x - y) ** 2)
+
 
 
 class PSNRLoss(nn.Module):

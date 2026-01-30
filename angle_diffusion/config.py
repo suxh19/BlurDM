@@ -25,13 +25,6 @@ class Stage1Config:
     val_visualize: bool  # Whether to save visualizations during validation
     val_vis_samples: int  # Number of samples to visualize
 
-    # Physics / degradation
-    focus_table_path: str
-    max_t: int
-    t_min: int
-    t_max: int
-    sart_iterations: int
-    config_preset: str
 
     # Model - MIMO-UNet
     image_size: int
@@ -42,6 +35,9 @@ class Stage1Config:
     n_feats: int  # Number of features in LatentEncoder
     n_encoder_res: int  # Number of residual blocks in encoder
     pixel_unshuffle_factor: int
+    
+    # Loss
+    loss_type: str  # 'l1' or 'l2'
     
     # Output
     out_dir: str
@@ -83,17 +79,12 @@ def load_stage1_config(path: str | Path) -> Stage1Config:
         val_ratio=cfg["training"].get("val_ratio", 1.0),
         val_visualize=cfg["training"].get("val_visualize", False),
         val_vis_samples=cfg["training"].get("val_vis_samples", 4),
-        focus_table_path=cfg["physics"]["focus_table_path"],
-        max_t=cfg["physics"]["max_t"],
-        t_min=cfg["physics"].get("t_min", 0),
-        t_max=cfg["physics"].get("t_max", cfg["physics"]["max_t"]),
-        sart_iterations=cfg["physics"]["sart_iterations"],
-        config_preset=cfg["physics"]["config_preset"],
         image_size=cfg["model"]["image_size"],
         num_res=cfg["model"].get("num_res", 20),
         in_channels=cfg["model"].get("in_channels", 1),
         n_feats=cfg["model"].get("n_feats", 64),
         n_encoder_res=cfg["model"].get("n_encoder_res", 6),
         pixel_unshuffle_factor=cfg["model"].get("pixel_unshuffle_factor", 4),
+        loss_type=cfg["model"].get("loss_type", "l1"),
         out_dir=cfg["output"]["out_dir"],
     )

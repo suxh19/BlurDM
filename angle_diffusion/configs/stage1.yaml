@@ -7,7 +7,7 @@ data:
 training:
   batch_size: 24
   lr: 0.0002
-  epochs: 200
+  epochs: 400
   num_workers: 4
   save_interval: 10
   val_interval: 5
@@ -16,21 +16,14 @@ training:
   val_visualize: true # 是否在验证时保存可视化结果
   val_vis_samples: 4 # 每次验证保存多少个样本的可视化
 
-physics:
-  focus_table_path: "./dataset/linear_indices_100.focus_table.npz"
-  max_t: 100
-  t_min: 1
-  t_max: 100
-  sart_iterations: 10
-  config_preset: "standard_512"
-
 model:
   image_size: 512
-  num_res: 8 # MIMO-UNet residual blocks
-  in_channels: 1 # CT single channel
-  n_feats: 64 # LatentEncoder features
-  n_encoder_res: 6 # LatentEncoder residual blocks
+  num_res: 10
+  in_channels: 1
+  n_feats: 64
+  n_encoder_res: 6
   pixel_unshuffle_factor: 4
+  loss_type: "l1"
 
 output:
   out_dir: "./angle_diffusion/output/stage1"
