@@ -43,10 +43,6 @@ class Stage1Config:
     n_encoder_res: int  # Number of residual blocks in encoder
     pixel_unshuffle_factor: int
     
-    # Loss
-    criterion: str  # 'l1', 'perceptual', 'l1perceptual'
-    gamma: float  # Perceptual loss weight
-
     # Output
     out_dir: str
 
@@ -99,7 +95,5 @@ def load_stage1_config(path: str | Path) -> Stage1Config:
         n_feats=cfg["model"].get("n_feats", 64),
         n_encoder_res=cfg["model"].get("n_encoder_res", 6),
         pixel_unshuffle_factor=cfg["model"].get("pixel_unshuffle_factor", 4),
-        criterion=cfg["model"].get("criterion", "l1"),
-        gamma=cfg["model"].get("gamma", 0.5),
         out_dir=cfg["output"]["out_dir"],
     )

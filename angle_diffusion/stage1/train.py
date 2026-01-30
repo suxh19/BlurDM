@@ -14,7 +14,7 @@ from angle_diffusion.config import Stage1Config, load_stage1_config
 from angle_diffusion.data.ct_dataset import CTDataset
 from angle_diffusion.models.mimo_unet import build_MIMOUnet_net
 from angle_diffusion.models.latent_encoder import LE_arch
-from angle_diffusion.models.losses import CharbonnierLoss, L1andPerceptualLoss
+from angle_diffusion.models.losses import CharbonnierLoss
 from angle_diffusion.utils.misc import ensure_dir, save_yaml, seed_everything
 
 
@@ -195,13 +195,8 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
         lr=cfg.lr
     )
 
-    # Loss criterion
-    if cfg.criterion == "l1":
-        criterion = CharbonnierLoss().to(device)
-    elif cfg.criterion == "l1perceptual":
-        criterion = L1andPerceptualLoss(gamma=cfg.gamma).to(device)
-    else:
-        raise ValueError(f"Unsupported criterion: {cfg.criterion}")
+    # Loss criterion (L1 only)
+    criterion = CharbonnierLoss().to(device)
 
     train_ds = CTDataset(cfg.data_root, split=cfg.train_split, max_samples=cfg.max_samples)
     val_ds = CTDataset(cfg.data_root, split=cfg.val_split, max_samples=cfg.max_samples)

@@ -31,8 +31,6 @@ model:
   n_feats: 64 # LatentEncoder features
   n_encoder_res: 6 # LatentEncoder residual blocks
   pixel_unshuffle_factor: 4
-  criterion: "l1" # Loss function: 'l1', 'perceptual', or 'l1perceptual'
-  gamma: 0.5 # Perceptual loss weight (if using l1perceptual)
 
 output:
   out_dir: "./angle_diffusion/output/stage1"

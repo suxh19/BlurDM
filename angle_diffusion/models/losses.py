@@ -1,9 +1,6 @@
 import torch
 import torch.nn as nn
-import torch
-import torchvision  # type: ignore
 import numpy as np
-import torchvision.transforms as transforms  # type: ignore
 
 class CharbonnierLoss(nn.Module):
     """Charbonnier Loss (L1)"""
@@ -18,96 +15,9 @@ class CharbonnierLoss(nn.Module):
         loss = torch.mean(torch.sqrt((diff * diff) + (self.eps * self.eps)))
         return loss
 
-class VGGPerceptualLoss(nn.Module):
-    def __init__(self, resize=False):
-        super(VGGPerceptualLoss, self).__init__()
-        blocks = []
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[:4].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[4:9].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[9:16].eval())
-        blocks.append(torchvision.models.vgg16(pretrained=True).features[16:23].eval())
-        for bl in blocks:
-            for p in bl.parameters():
-                p.requires_grad = False
-        self.blocks = torch.nn.ModuleList(blocks)
-        self.transform = torch.nn.functional.interpolate
-        self.resize = resize
-        self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
-        self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
-
-    def forward(self, input, target, feature_layers=[0, 1, 2, 3], style_layers=[]):
-        if input.shape[1] != 3:
-            input = input.repeat(1, 3, 1, 1)
-            target = target.repeat(1, 3, 1, 1)
-        input = (input-self.mean) / self.std
-        target = (target-self.mean) / self.std
-        if self.resize:
-            input = self.transform(input, mode='bilinear', size=(224, 224), align_corners=False)
-            target = self.transform(target, mode='bilinear', size=(224, 224), align_corners=False)
-        loss = 0.0
-        x = input
-        y = target
-        for i, block in enumerate(self.blocks):
-            x = block(x)
-            y = block(y)
-            if i in feature_layers:
-                loss += torch.nn.functional.l1_loss(x, y)
-            if i in style_layers:
-                act_x = x.reshape(x.shape[0], x.shape[1], -1)
-                act_y = y.reshape(y.shape[0], y.shape[1], -1)
-                gram_x = act_x @ act_x.permute(0, 2, 1)
-                gram_y = act_y @ act_y.permute(0, 2, 1)
-                loss += torch.nn.functional.l1_loss(gram_x, gram_y)
-        return loss
-
-class PerceptualLoss():
-	def __init__(self, features=34, device='cuda'):
-		self.device = device
-		self.features = features
-		self.criterion = torch.nn.functional.l1_loss
-		self.content_model = self._build_content_func()
-		self.transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
 
 
-	def _build_content_func(self):
-		cnn = torchvision.models.vgg19(pretrained=True).features
-		model = nn.Sequential()
-		for i,layer in enumerate(list(cnn)):
-			model.add_module(str(i),layer)
-			if i == self.features:
-				break
-		# No need to BP to variable
-		for k, v in model.named_parameters():
-			v.requires_grad = False
-
-		return model.to(self.device).eval()
-		
-	def get_loss(self, fakeIm, realIm):
-		fakeIm = self.transform(fakeIm)
-		realIm = self.transform(realIm)
-		f_fake = self.content_model(fakeIm)
-		f_real = self.content_model(realIm)
-		f_real_no_grad = f_real.detach()
-		loss = self.criterion(f_fake, f_real_no_grad)
-		return loss
-
-	def __call__(self, fakeIm, realIm):
-	    return self.get_loss(fakeIm, realIm)
-
-class L1andPerceptualLoss(nn.Module):
-    def __init__(self, gamma=0.1):
-        super(L1andPerceptualLoss, self).__init__()
-        self.preceptual = PerceptualLoss()
-        self.l1 = CharbonnierLoss()
-        self.gamma = gamma
-    
-    def forward(self, input, target):
-        l1_loss = self.l1(input, target)
-        preceptual_loss = self.preceptual(input, target)
-
-        return l1_loss + self.gamma * preceptual_loss
-    
 class PSNRLoss(nn.Module):
     def __init__(self, loss_weight=1.0, reduction='mean', toY=False):
         super(PSNRLoss, self).__init__()
