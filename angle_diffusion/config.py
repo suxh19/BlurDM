@@ -37,7 +37,9 @@ class Stage1Config:
     pixel_unshuffle_factor: int
     
     # Loss
-    loss_type: str  # 'l1' or 'l2'
+    loss_type: str  # 'l1', 'l2', or 'weighted'
+    l1_weight: float
+    l2_weight: float
     
     # Output
     out_dir: str
@@ -86,5 +88,7 @@ def load_stage1_config(path: str | Path) -> Stage1Config:
         n_encoder_res=cfg["model"].get("n_encoder_res", 6),
         pixel_unshuffle_factor=cfg["model"].get("pixel_unshuffle_factor", 4),
         loss_type=cfg["model"].get("loss_type", "l1"),
+        l1_weight=cfg["model"].get("l1_weight", 1.0 if cfg["model"].get("loss_type", "l1") == "l1" else 0.0),
+        l2_weight=cfg["model"].get("l2_weight", 1.0 if cfg["model"].get("loss_type", "l1") == "l2" else 0.0),
         out_dir=cfg["output"]["out_dir"],
     )

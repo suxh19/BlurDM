@@ -14,7 +14,7 @@ training:
   seed: 2023
   val_ratio: 0.1 # 验证数据集使用比例 (0.0-1.0)
   val_visualize: true # 是否在验证时保存可视化结果
-  val_vis_samples: 4 # 每次验证保存多少个样本的可视化
+  val_vis_samples: 12 # 每次验证保存多少个样本的可视化
 
 model:
   image_size: 512
@@ -23,7 +23,9 @@ model:
   n_feats: 64
   n_encoder_res: 6
   pixel_unshuffle_factor: 4
-  loss_type: "l1"
+  loss_type: "weighted"
+  l1_weight: 0.5
+  l2_weight: 0.5
 
 output:
   out_dir: "./angle_diffusion/output/stage1"

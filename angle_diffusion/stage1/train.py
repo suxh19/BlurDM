@@ -196,14 +196,9 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
     )
 
     # Loss criterion
-    if cfg.loss_type == "l1":
-        criterion = CharbonnierLoss().to(device)
-        print(f"[Stage1] Using L1 loss (CharbonnierLoss)")
-    elif cfg.loss_type == "l2":
-        criterion = MSELoss().to(device)
-        print(f"[Stage1] Using L2 loss (MSELoss)")
-    else:
-        raise ValueError(f"Unsupported loss_type: {cfg.loss_type}. Choose 'l1' or 'l2'.")
+    criterion_l1 = CharbonnierLoss().to(device)
+    criterion_l2 = MSELoss().to(device)
+    print(f"[Stage1] Loss config: l1_weight={cfg.l1_weight}, l2_weight={cfg.l2_weight}")
 
     train_ds = CTDataset(cfg.data_root, split=cfg.train_split, max_samples=cfg.max_samples)
     val_ds = CTDataset(cfg.data_root, split=cfg.val_split, max_samples=cfg.max_samples)
@@ -258,9 +253,12 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
             gt_img4 = F.interpolate(x0, scale_factor=0.25, mode='bilinear')
             
             # Content loss at each scale
-            l1 = criterion(outputs[0], gt_img4)
-            l2 = criterion(outputs[1], gt_img2)
-            l3 = criterion(outputs[2], x0)
+            def get_weighted_loss(pred, target):
+                return cfg.l1_weight * criterion_l1(pred, target) + cfg.l2_weight * criterion_l2(pred, target)
+
+            l1 = get_weighted_loss(outputs[0], gt_img4)
+            l2 = get_weighted_loss(outputs[1], gt_img2)
+            l3 = get_weighted_loss(outputs[2], x0)
             loss_content = l1 + l2 + l3
             
             # FFT loss at each scale
@@ -271,9 +269,9 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
             label_fft3 = rfft(x0, 2)
             pred_fft3 = rfft(outputs[2], 2)
             
-            f1 = criterion(pred_fft1, label_fft1)
-            f2 = criterion(pred_fft2, label_fft2)
-            f3 = criterion(pred_fft3, label_fft3)
+            f1 = get_weighted_loss(pred_fft1, label_fft1)
+            f2 = get_weighted_loss(pred_fft2, label_fft2)
+            f3 = get_weighted_loss(pred_fft3, label_fft3)
             loss_fft = f1 + f2 + f3
             
             # Total loss
