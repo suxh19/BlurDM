@@ -18,13 +18,6 @@ from angle_diffusion.models.losses import CharbonnierLoss, MSELoss
 from angle_diffusion.utils.misc import ensure_dir, save_yaml, seed_everything
 
 
-def rfft(x: torch.Tensor, d: int) -> torch.Tensor:
-    """FFT function compatible with both old and new PyTorch versions."""
-    t = torch.fft.fft(x, dim=(-d))
-    r = torch.stack((t.real, t.imag), -1)
-    return r
-
-
 def save_checkpoint(
     out_dir: str,
     name: str,
@@ -261,21 +254,8 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
             l3 = get_weighted_loss(outputs[2], x0)
             loss_content = l1 + l2 + l3
             
-            # FFT loss at each scale
-            label_fft1 = rfft(gt_img4, 2)
-            pred_fft1 = rfft(outputs[0], 2)
-            label_fft2 = rfft(gt_img2, 2)
-            pred_fft2 = rfft(outputs[1], 2)
-            label_fft3 = rfft(x0, 2)
-            pred_fft3 = rfft(outputs[2], 2)
-            
-            f1 = get_weighted_loss(pred_fft1, label_fft1)
-            f2 = get_weighted_loss(pred_fft2, label_fft2)
-            f3 = get_weighted_loss(pred_fft3, label_fft3)
-            loss_fft = f1 + f2 + f3
-            
-            # Total loss
-            loss = loss_content + 0.1 * loss_fft
+            # Total loss (content only)
+            loss = loss_content
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -309,4 +289,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

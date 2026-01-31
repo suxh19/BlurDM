@@ -66,6 +66,26 @@ def load_stage1_config(path: str | Path) -> Stage1Config:
     else:
         raise ValueError(f"Unsupported config extension: {suffix} (use .py or .yaml)")
 
+    model_cfg = cfg["model"]
+    loss_type = model_cfg.get("loss_type", "l1")
+    l1_weight = model_cfg.get("l1_weight")
+    l2_weight = model_cfg.get("l2_weight")
+    if loss_type == "weighted":
+        if l1_weight is None or l2_weight is None:
+            raise ValueError("loss_type 'weighted' requires explicit l1_weight and l2_weight in config")
+    elif loss_type == "l1":
+        if l1_weight is None:
+            l1_weight = 1.0
+        if l2_weight is None:
+            l2_weight = 0.0
+    elif loss_type == "l2":
+        if l1_weight is None:
+            l1_weight = 0.0
+        if l2_weight is None:
+            l2_weight = 1.0
+    else:
+        raise ValueError(f"Unsupported loss_type: {loss_type!r} (use 'l1', 'l2', or 'weighted')")
+
     return Stage1Config(
         data_root=cfg["data"]["root"],
         train_split=cfg["data"]["train_split"],
@@ -81,14 +101,14 @@ def load_stage1_config(path: str | Path) -> Stage1Config:
         val_ratio=cfg["training"].get("val_ratio", 1.0),
         val_visualize=cfg["training"].get("val_visualize", False),
         val_vis_samples=cfg["training"].get("val_vis_samples", 4),
-        image_size=cfg["model"]["image_size"],
-        num_res=cfg["model"].get("num_res", 20),
-        in_channels=cfg["model"].get("in_channels", 1),
-        n_feats=cfg["model"].get("n_feats", 64),
-        n_encoder_res=cfg["model"].get("n_encoder_res", 6),
-        pixel_unshuffle_factor=cfg["model"].get("pixel_unshuffle_factor", 4),
-        loss_type=cfg["model"].get("loss_type", "l1"),
-        l1_weight=cfg["model"].get("l1_weight", 1.0 if cfg["model"].get("loss_type", "l1") == "l1" else 0.0),
-        l2_weight=cfg["model"].get("l2_weight", 1.0 if cfg["model"].get("loss_type", "l1") == "l2" else 0.0),
+        image_size=model_cfg["image_size"],
+        num_res=model_cfg.get("num_res", 20),
+        in_channels=model_cfg.get("in_channels", 1),
+        n_feats=model_cfg.get("n_feats", 64),
+        n_encoder_res=model_cfg.get("n_encoder_res", 6),
+        pixel_unshuffle_factor=model_cfg.get("pixel_unshuffle_factor", 4),
+        loss_type=loss_type,
+        l1_weight=float(l1_weight) if l1_weight is not None else 0.0,
+        l2_weight=float(l2_weight) if l2_weight is not None else 0.0,
         out_dir=cfg["output"]["out_dir"],
     )
