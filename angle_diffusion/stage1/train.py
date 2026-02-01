@@ -18,6 +18,14 @@ from angle_diffusion.models.losses import CharbonnierLoss, MSELoss
 from angle_diffusion.utils.misc import ensure_dir, save_yaml, seed_everything
 
 
+def _shift_to_unit(tensor: torch.Tensor) -> torch.Tensor:
+    return (tensor + 0.5).clamp(0.0, 1.0)
+
+
+def _shift_to_unit_np(array: np.ndarray) -> np.ndarray:
+    return np.clip(array + 0.5, 0.0, 1.0)
+
+
 def save_checkpoint(
     out_dir: str,
     name: str,
@@ -48,11 +56,19 @@ def validate(
     device: torch.device,
     epoch: int | None = None,
     out_dir: str | None = None,
-) -> float:
+) -> dict[str, float | None]:
     """Validate using precomputed SART images from dataset."""
     model.eval()
     model_le.eval()
     losses = []
+    psnr_vals = []
+    ssim_vals = []
+
+    try:
+        from skimage.metrics import structural_similarity as skimage_ssim
+    except Exception:
+        skimage_ssim = None
+        print("[Stage1] Warning: skimage not available, SSIM will be omitted for this validation.")
     
     # 可视化存储
     vis_images = []
@@ -60,6 +76,8 @@ def validate(
     # 根据 val_ratio 计算需要使用的数据量
     total_batches = len(loader)
     num_batches = max(1, int(total_batches * cfg.val_ratio))
+    max_ssim_samples = max(0, int(cfg.val_vis_samples))
+    ssim_count = 0
     
     for batch_idx, (x0, x_t) in enumerate(loader):
         if batch_idx >= num_batches:
@@ -75,7 +93,21 @@ def validate(
         outputs = model(x_t, z_pred)
         # Use full-scale output for validation
         pred = outputs[2]
-        losses.append(F.l1_loss(pred, x0).item())
+
+        x0_metric = _shift_to_unit(x0)
+        pred_metric = _shift_to_unit(pred)
+        l1_per = F.l1_loss(pred_metric, x0_metric, reduction="none").mean(dim=(1, 2, 3))
+        mse_per = F.mse_loss(pred_metric, x0_metric, reduction="none").mean(dim=(1, 2, 3))
+        psnr_per = 10.0 * torch.log10(1.0 / (mse_per + 1e-12))
+        losses.extend(l1_per.detach().cpu().tolist())
+        psnr_vals.extend(psnr_per.detach().cpu().tolist())
+
+        if skimage_ssim is not None and ssim_count < max_ssim_samples:
+            for i in range(min(bs, max_ssim_samples - ssim_count)):
+                gt_np = x0_metric[i].squeeze().detach().cpu().numpy()
+                pred_np = pred_metric[i].squeeze().detach().cpu().numpy()
+                ssim_vals.append(float(skimage_ssim(gt_np, pred_np, data_range=1.0)))
+                ssim_count += 1
         
         # 收集可视化样本
         if cfg.val_visualize and len(vis_images) < cfg.val_vis_samples:
@@ -90,8 +122,24 @@ def validate(
     # 保存可视化结果
     if cfg.val_visualize and vis_images and epoch is not None and out_dir is not None:
         save_visualizations(out_dir, vis_images, epoch)
+
+    metrics = {
+        "val_l1": float(np.mean(losses)) if losses else 0.0,
+        "val_psnr": float(np.mean(psnr_vals)) if psnr_vals else 0.0,
+        "val_ssim": float(np.mean(ssim_vals)) if ssim_vals else None,
+    }
+
+    if epoch is not None and out_dir is not None:
+        logs_dir = ensure_dir(os.path.join(out_dir, "logs"))
+        metrics_path = os.path.join(logs_dir, "metrics.csv")
+        is_new = not os.path.exists(metrics_path)
+        with open(metrics_path, "a", encoding="utf-8") as f:
+            if is_new:
+                f.write("epoch,val_l1,val_psnr,val_ssim\n")
+            val_ssim_str = "" if metrics["val_ssim"] is None else f"{metrics['val_ssim']:.6f}"
+            f.write(f"{epoch},{metrics['val_l1']:.6f},{metrics['val_psnr']:.6f},{val_ssim_str}\n")
     
-    return float(np.mean(losses)) if losses else 0.0
+    return metrics
 
 
 def save_visualizations(
@@ -102,6 +150,11 @@ def save_visualizations(
     """保存验证可视化结果"""
     import matplotlib.pyplot as plt
     from matplotlib.gridspec import GridSpec
+
+    try:
+        from skimage.metrics import structural_similarity as skimage_ssim
+    except Exception:
+        skimage_ssim = None
     
     vis_dir = os.path.join(out_dir, "logs", "visualizations", f"epoch_{epoch:04d}")
     ensure_dir(vis_dir)
@@ -137,11 +190,24 @@ def save_visualizations(
         plt.colorbar(im3, ax=ax3, fraction=0.046)
         
         # 计算误差指标
-        mae = np.mean(np.abs(pred - gt))
-        mse = np.mean((pred - gt) ** 2)
-        
-        fig.suptitle(f'Sample {idx+1} | MAE: {mae:.4f} | MSE: {mse:.6f}', 
-                     fontsize=14, fontweight='bold', y=0.98)
+        gt_metric = _shift_to_unit_np(gt)
+        pred_metric = _shift_to_unit_np(pred)
+        mae = np.mean(np.abs(pred_metric - gt_metric))
+        mse = np.mean((pred_metric - gt_metric) ** 2)
+        psnr = 10.0 * np.log10(1.0 / (mse + 1e-12))
+
+        if skimage_ssim is not None:
+            ssim_val = skimage_ssim(gt_metric, pred_metric, data_range=1.0)
+            title = (
+                f"Sample {idx+1} | MAE: {mae:.4f} | MSE: {mse:.6f} | "
+                f"PSNR: {psnr:.2f} | SSIM: {ssim_val:.4f}"
+            )
+        else:
+            title = (
+                f"Sample {idx+1} | MAE: {mae:.4f} | MSE: {mse:.6f} | PSNR: {psnr:.2f}"
+            )
+
+        fig.suptitle(title, fontsize=14, fontweight='bold', y=0.98)
         
         save_path = os.path.join(vis_dir, f"sample_{idx+1:02d}.png")
         plt.savefig(save_path, dpi=150, bbox_inches='tight')
@@ -268,10 +334,15 @@ def train(cfg: Stage1Config, resume: str | None = None) -> None:
             save_checkpoint(out_dir, f"epoch_{epoch+1:04d}.pth", model, model_le, optimizer, epoch + 1, best_val)
 
         if (epoch + 1) % cfg.val_interval == 0:
-            val_loss = validate(cfg, model, model_le, val_loader, device, epoch=epoch+1, out_dir=out_dir)
-            print(f"[Stage1] epoch={epoch+1} val_l1={val_loss:.6f}")
-            if best_val is None or val_loss < best_val:
-                best_val = val_loss
+            metrics = validate(cfg, model, model_le, val_loader, device, epoch=epoch+1, out_dir=out_dir)
+            val_ssim = metrics["val_ssim"]
+            val_ssim_str = "None" if val_ssim is None else f"{val_ssim:.6f}"
+            print(
+                f"[Stage1] epoch={epoch+1} val_l1={metrics['val_l1']:.6f} "
+                f"val_psnr={metrics['val_psnr']:.6f} val_ssim={val_ssim_str}"
+            )
+            if best_val is None or metrics["val_l1"] < best_val:
+                best_val = metrics["val_l1"]
                 save_checkpoint(out_dir, "best.pth", model, model_le, optimizer, epoch + 1, best_val)
 
     save_checkpoint(out_dir, "last.pth", model, model_le, optimizer, cfg.epochs, best_val)
