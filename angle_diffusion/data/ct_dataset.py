@@ -15,6 +15,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
+from angle_diffusion.physics.ct_physics_batch import CT_PhysicsBatch
+
 
 class CTDataset(Dataset):
     def __init__(
@@ -242,6 +244,11 @@ class CTAngleDegradeDataset(Dataset):
             t = random.choice(self.t_values)
 
         gt_np = np.load(gt_path).astype(np.float32)  # [0,1]
+        use_batch = isinstance(self.ct_physics, CT_PhysicsBatch)
+        if use_batch and gt_np.ndim == 2:
+            gt_in = gt_np[None, ...]
+        else:
+            gt_in = gt_np
 
         # Degrade using physics operator (expects [0,1] scale in our dataset).
         if self.cache_dir is not None:
@@ -249,14 +256,18 @@ class CTAngleDegradeDataset(Dataset):
             if cache_path.exists():
                 deg_np = np.load(cache_path).astype(np.float32)
             else:
-                deg_np = self.ct_physics.degrade(gt_np, t).astype(np.float32)
+                deg_np = self.ct_physics.degrade(gt_in, t).astype(np.float32)
                 if self.cache_clip01:
                     deg_np = np.clip(deg_np, 0.0, 1.0)
+                if use_batch and deg_np.ndim == 3 and deg_np.shape[0] == 1:
+                    deg_np = deg_np[0]
                 np.save(cache_path, deg_np)
         else:
-            deg_np = self.ct_physics.degrade(gt_np, t).astype(np.float32)
+            deg_np = self.ct_physics.degrade(gt_in, t).astype(np.float32)
             if self.cache_clip01:
                 deg_np = np.clip(deg_np, 0.0, 1.0)
+            if use_batch and deg_np.ndim == 3 and deg_np.shape[0] == 1:
+                deg_np = deg_np[0]
 
         # Shift to model range [-0.5, 0.5]
         gt_shift = gt_np - 0.5

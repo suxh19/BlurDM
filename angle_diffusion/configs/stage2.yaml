@@ -2,7 +2,7 @@ data:
   root: "./dataset"
   train_split: "train"
   val_split: "test"
-  max_samples: null
+  max_samples: 100
   # Optional cache directory for CT_Physics results (recommended, CT degradation is expensive)
   cache_dir: "dataset/cache_stage2_degraded"
 
@@ -15,6 +15,12 @@ physics:
   focus_table_path: "dataset/linear_indices_100.focus_table.npz"
   sart_iterations: 10
   preset: "standard_512"
+  fp_algorithm: "FP3D_CUDA_BATCH"
+  sirt_algorithm: "SIRT3D_CUDA_GPU_BATCH"
+  # Optional: CT_PhysicsBatch tuning (see astra_2d/bench/ct_physics_batch_benchmark.py)
+  # Use null to keep default behavior.
+  batch_size: 24
+  num_workers: 12
 
 degradation:
   # Training degradation range (inclusive). For a fixed limited-angle setting, set t_min=t_max=100.
@@ -38,6 +44,9 @@ training:
   seed: 2023
   # Use only a portion of val set to reduce CT_Physics cost.
   val_ratio: 0.1
+  # Enable visualization like Stage1
+  val_visualize: true
+  val_vis_samples: 12
 
 model:
   # Encoder (BE)
@@ -45,6 +54,8 @@ model:
   n_feats: 64
   n_encoder_res: 6
   pixel_unshuffle_factor: 4
+  # Stage1 MIMO-UNet decoder for visualization (must match Stage1 num_res)
+  decoder_num_res: 10
 
   # AngleDM (latent diffusion)
   T: 5

@@ -60,6 +60,10 @@ class Stage2Config:
     focus_table_path: str
     sart_iterations: int
     preset: str
+    fp_algorithm: str
+    sirt_algorithm: str
+    physics_batch_size: int | None
+    physics_num_workers: int | None
     degrade_t_min: int
     degrade_t_max: int
     degrade_t_val: int
@@ -75,12 +79,15 @@ class Stage2Config:
     val_interval: int
     seed: int
     val_ratio: float
+    val_visualize: bool
+    val_vis_samples: int
 
     # Model - encoder (BE)
     in_channels: int
     n_feats: int
     n_encoder_res: int
     pixel_unshuffle_factor: int
+    decoder_num_res: int
 
     # Model - diffusion
     T: int
@@ -274,6 +281,20 @@ def load_stage2_config(path: str | Path) -> Stage2Config:
     if not (degrade_t_min <= degrade_t_val <= degrade_t_max):
         raise ValueError("degradation.t_val must be within [t_min, t_max]")
 
+    physics_batch_size_raw = phys_cfg.get("batch_size")
+    physics_num_workers_raw = phys_cfg.get("num_workers")
+
+    def _parse_positive_int(raw, key: str) -> int | None:
+        if raw is None:
+            return None
+        val = int(raw)
+        if val <= 0:
+            raise ValueError(f"physics.{key} must be >= 1")
+        return val
+
+    physics_batch_size = _parse_positive_int(physics_batch_size_raw, "batch_size")
+    physics_num_workers = _parse_positive_int(physics_num_workers_raw, "num_workers")
+
     return Stage2Config(
         data_root=data_cfg["root"],
         train_split=data_cfg.get("train_split", "train"),
@@ -284,6 +305,10 @@ def load_stage2_config(path: str | Path) -> Stage2Config:
         focus_table_path=phys_cfg["focus_table_path"],
         sart_iterations=int(phys_cfg.get("sart_iterations", 10)),
         preset=str(phys_cfg.get("preset", "standard_512")),
+        fp_algorithm=str(phys_cfg.get("fp_algorithm", "FP3D_CUDA_BATCH")),
+        sirt_algorithm=str(phys_cfg.get("sirt_algorithm", "SIRT3D_CUDA_GPU_BATCH")),
+        physics_batch_size=physics_batch_size,
+        physics_num_workers=physics_num_workers,
         degrade_t_min=degrade_t_min,
         degrade_t_max=degrade_t_max,
         degrade_t_val=degrade_t_val,
@@ -297,10 +322,13 @@ def load_stage2_config(path: str | Path) -> Stage2Config:
         val_interval=int(train_cfg.get("val_interval", 5)),
         seed=int(train_cfg.get("seed", 2023)),
         val_ratio=float(train_cfg.get("val_ratio", 1.0)),
+        val_visualize=bool(train_cfg.get("val_visualize", False)),
+        val_vis_samples=int(train_cfg.get("val_vis_samples", 4)),
         in_channels=int(model_cfg.get("in_channels", 1)),
         n_feats=int(model_cfg.get("n_feats", 64)),
         n_encoder_res=int(model_cfg.get("n_encoder_res", 6)),
         pixel_unshuffle_factor=int(model_cfg.get("pixel_unshuffle_factor", 4)),
+        decoder_num_res=int(model_cfg.get("decoder_num_res", 10)),
         T=int(model_cfg.get("T", 5)),
         beta_max=float(model_cfg.get("beta_max", 0.02)),
         time_embed_dim=int(model_cfg.get("time_embed_dim", 128)),

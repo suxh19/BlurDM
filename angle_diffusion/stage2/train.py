@@ -11,91 +11,17 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from angle_diffusion.config import Stage2Config, load_stage2_config
-from angle_diffusion.data.ct_dataset import CTAngleDegradeDataset
+from angle_diffusion.data.ct_dataset import CTGroundTruthDataset
 from angle_diffusion.models.latent_encoder import LE_arch
+from angle_diffusion.models.mimo_unet import build_MIMOUnet_net
 from angle_diffusion.models.angle_encoder import AngleEncoder
 from angle_diffusion.models.angle_dm import AngleDM
-from angle_diffusion.physics.ct_physics import CT_Physics
+from angle_diffusion.physics.ct_physics_batch import CT_PhysicsBatch
 from angle_diffusion.utils.misc import ensure_dir, save_yaml, seed_everything
 
-
-def save_checkpoint(
-    out_dir: str,
-    name: str,
-    be: torch.nn.Module,
-    dm: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
-    epoch: int,
-    best_val: float | None = None,
-) -> str:
-    path = os.path.join(out_dir, "checkpoints", name)
-    payload = {
-        "epoch": epoch,
-        "be": be.state_dict(),
-        "dm": dm.state_dict(),
-        "optimizer": optimizer.state_dict(),
-        "best_val": best_val,
-    }
-    torch.save(payload, path)
-    return path
-
-
-@torch.no_grad()
-def validate(
-    cfg: Stage2Config,
-    teacher: torch.nn.Module,
-    be: torch.nn.Module,
-    dm: torch.nn.Module,
-    loader: DataLoader,
-    device: torch.device,
-    epoch: int | None = None,
-    out_dir: str | None = None,
-) -> dict[str, float]:
-    """Validate by latent L1: ||Z0^B - Z^S||_1."""
-    teacher.eval()
-    be.eval()
-    dm.eval()
-
-    losses = []
-
-    total_batches = len(loader)
-    num_batches = max(1, int(total_batches * cfg.val_ratio))
-
-    for batch_idx, (x0, x_deg, t) in enumerate(loader):
-        if batch_idx >= num_batches:
-            break
-
-        x0 = x0.to(device)
-        x_deg = x_deg.to(device)
-        if isinstance(t, torch.Tensor):
-            t_tensor = t.to(device)
-        else:
-            t_tensor = torch.tensor(t, device=device)
-
-        # Teacher sharp prior (from Stage1 SE): Z^S = LE_arch(x_deg, x0)
-        z_s = teacher(x_deg, x0)
-
-        # Condition latent from degraded only: Z^B
-        z_b = be(x_deg)
-
-        # One-step forward: Z_T = Z_B + beta_bar[T]*eps
-        z0_pred = dm.sample(z_b, degrade_level=t_tensor)
-
-        loss = F.l1_loss(z0_pred, z_s)
-        losses.append(float(loss.detach().cpu().item()))
-
-    val_l1 = float(np.mean(losses)) if losses else 0.0
-
-    if epoch is not None and out_dir is not None:
-        logs_dir = ensure_dir(os.path.join(out_dir, "logs"))
-        metrics_path = os.path.join(logs_dir, "metrics.csv")
-        is_new = not os.path.exists(metrics_path)
-        with open(metrics_path, "a", encoding="utf-8") as f:
-            if is_new:
-                f.write("epoch,val_l1\n")
-            f.write(f"{epoch},{val_l1:.6f}\n")
-
-    return {"val_l1": val_l1}
+from .checkpoint import save_checkpoint
+from .degradation import sample_degrade_level, degrade_batch_with_cache
+from .validation import validate
 
 
 def train(cfg: Stage2Config, resume: str | None = None) -> None:
@@ -117,10 +43,14 @@ def train(cfg: Stage2Config, resume: str | None = None) -> None:
     # ------------------------------------------------------------
     # Physics operator
     # ------------------------------------------------------------
-    ct_physics = CT_Physics(
+    ct_physics = CT_PhysicsBatch(
         focus_table_path=cfg.focus_table_path,
         sart_iterations=cfg.sart_iterations,
         preset=cfg.preset,
+        fp_algorithm=cfg.fp_algorithm,
+        sirt_algorithm=cfg.sirt_algorithm,
+        batch_size=cfg.physics_batch_size,
+        num_workers=cfg.physics_num_workers,
     )
 
     # ------------------------------------------------------------
@@ -143,6 +73,23 @@ def train(cfg: Stage2Config, resume: str | None = None) -> None:
     teacher.load_state_dict(ckpt["model_le"], strict=True)
     for p in teacher.parameters():
         p.requires_grad_(False)
+
+    decoder = None
+    if cfg.val_visualize:
+        if "model" not in ckpt:
+            raise ValueError(
+                "Stage1 checkpoint must contain key 'model' for visualization. "
+                "Please point stage1.ckpt to Stage1 'best.pth' or 'last.pth'."
+            )
+        decoder = build_MIMOUnet_net(
+            "MIMOUNetBlurDM",
+            num_res=cfg.decoder_num_res,
+            in_channels=cfg.in_channels,
+        ).to(device)
+        decoder.load_state_dict(ckpt["model"], strict=True)
+        decoder.eval()
+        for p in decoder.parameters():
+            p.requires_grad_(False)
 
     # ------------------------------------------------------------
     # Trainable BE + AngleDM
@@ -177,28 +124,17 @@ def train(cfg: Stage2Config, resume: str | None = None) -> None:
         train_cache = os.path.join(cfg.cache_dir, "train")
         val_cache = os.path.join(cfg.cache_dir, "val")
 
-    train_ds = CTAngleDegradeDataset(
+    train_ds = CTGroundTruthDataset(
         root_dir=cfg.data_root,
         split=cfg.train_split,
-        ct_physics=ct_physics,
-        t_min=cfg.degrade_t_min,
-        t_max=cfg.degrade_t_max,
-        t_values=cfg.degrade_t_values,
+        return_path=True,
         max_samples=cfg.max_samples,
-        cache_dir=train_cache,
-        cache_clip01=True,
     )
-    # Validation uses a fixed degradation level for stability.
-    val_ds = CTAngleDegradeDataset(
+    val_ds = CTGroundTruthDataset(
         root_dir=cfg.data_root,
         split=cfg.val_split,
-        ct_physics=ct_physics,
-        t_min=cfg.degrade_t_val,
-        t_max=cfg.degrade_t_val,
-        t_values=None,
+        return_path=True,
         max_samples=cfg.max_samples,
-        cache_dir=val_cache,
-        cache_clip01=True,
     )
 
     train_loader = DataLoader(
@@ -239,13 +175,27 @@ def train(cfg: Stage2Config, resume: str | None = None) -> None:
         losses = []
         pbar = tqdm(train_loader, desc=f"Stage2 Ep {epoch + 1}/{cfg.epochs}")
 
-        for x0, x_deg, t in pbar:
-            x0 = x0.to(device)  # [-0.5,0.5]
-            x_deg = x_deg.to(device)
-            if isinstance(t, torch.Tensor):
-                t_tensor = t.to(device)
+        for x0, gt_paths in pbar:
+            if isinstance(gt_paths, (list, tuple)):
+                paths = [str(p) for p in gt_paths]
             else:
-                t_tensor = torch.tensor(t, device=device)
+                paths = [str(gt_paths)]
+
+            t_level = sample_degrade_level(cfg)
+            gt_01 = (x0 + 0.5).clamp(0.0, 1.0)
+            gt_01_np = gt_01.numpy().astype(np.float32, copy=False)
+            deg_np = degrade_batch_with_cache(
+                ct_physics,
+                gt_01_np,
+                paths,
+                t_level,
+                train_cache,
+                clip_01=True,
+            )
+            deg_shift = deg_np - 0.5
+            x0 = x0.to(device)  # [-0.5,0.5]
+            x_deg = torch.from_numpy(deg_shift).to(device)
+            t_tensor = torch.full((x0.shape[0],), float(t_level), device=device)
 
             # Teacher Z^S
             with torch.no_grad():
@@ -287,14 +237,19 @@ def train(cfg: Stage2Config, resume: str | None = None) -> None:
                 teacher,
                 be,
                 dm,
+                decoder,
                 val_loader,
+                ct_physics,
+                val_cache,
                 device,
                 epoch=epoch + 1,
                 out_dir=out_dir,
             )
             print(f"[Stage2] epoch={epoch + 1} val_l1={metrics['val_l1']:.6f}")
-            if best_val is None or metrics["val_l1"] < best_val:
-                best_val = metrics["val_l1"]
+            current_val_l1: float = metrics["val_l1"]
+            should_save = best_val is None or current_val_l1 < best_val
+            if should_save:
+                best_val = current_val_l1
                 save_checkpoint(
                     out_dir, "best.pth", be, dm, optimizer, epoch + 1, best_val
                 )
