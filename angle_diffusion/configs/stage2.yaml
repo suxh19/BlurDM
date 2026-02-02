@@ -2,7 +2,7 @@ data:
   root: "./dataset"
   train_split: "train"
   val_split: "test"
-  max_samples: 100
+  max_samples: null
   # Optional cache directory for CT_Physics results (recommended, CT degradation is expensive)
   cache_dir: "dataset/cache_stage2_degraded"
 
@@ -58,7 +58,7 @@ model:
   decoder_num_res: 10
 
   # AngleDM (latent diffusion)
-  T: 5
+  T: 100
   beta_max: 0.02
   time_embed_dim: 128
   hidden_dim: 512

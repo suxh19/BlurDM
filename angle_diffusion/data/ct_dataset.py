@@ -15,7 +15,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-from angle_diffusion.physics.ct_physics_batch import CT_PhysicsBatch
+from angle_diffusion.stage2.physics.ct_physics_batch import CT_PhysicsBatch
 
 
 class CTDataset(Dataset):

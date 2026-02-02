@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from angle_diffusion.config import Stage2Config
 from angle_diffusion.models.angle_encoder import AngleEncoder
 from angle_diffusion.models.angle_dm import AngleDM
-from angle_diffusion.physics.ct_physics_batch import CT_PhysicsBatch
+from .physics.ct_physics_batch import CT_PhysicsBatch
 from angle_diffusion.utils.misc import ensure_dir
 
 from .degradation import degrade_batch_with_cache

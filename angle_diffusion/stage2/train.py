@@ -16,7 +16,7 @@ from angle_diffusion.models.latent_encoder import LE_arch
 from angle_diffusion.models.mimo_unet import build_MIMOUnet_net
 from angle_diffusion.models.angle_encoder import AngleEncoder
 from angle_diffusion.models.angle_dm import AngleDM
-from angle_diffusion.physics.ct_physics_batch import CT_PhysicsBatch
+from .physics.ct_physics_batch import CT_PhysicsBatch
 from angle_diffusion.utils.misc import ensure_dir, save_yaml, seed_everything
 
 from .checkpoint import save_checkpoint

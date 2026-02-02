@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from angle_diffusion.config import Stage2Config
-from angle_diffusion.physics.ct_physics_batch import CT_PhysicsBatch
+from .physics.ct_physics_batch import CT_PhysicsBatch
 
 
 def sample_degrade_level(cfg: Stage2Config) -> int:
