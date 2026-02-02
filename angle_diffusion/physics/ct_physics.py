@@ -24,6 +24,9 @@ class CT_Physics:
         sart_iterations: int = 10,
         preset: str = "standard_512",
     ):
+        # Store a resolved/absolute focus-table path so that downstream
+        # loaders (e.g., load_fromnpz) work reliably regardless of the
+        # current working directory.
         self.focus_table_path = focus_table_path
         self.sart_iterations = sart_iterations
         self.preset = preset
@@ -37,7 +40,10 @@ class CT_Physics:
         if not path.exists():
             raise FileNotFoundError(f"focus table 不存在: {path}")
         
-        data = np.load(path)
+        # Keep the resolved path for later usage in degrade().
+        self.focus_table_path = str(path)
+
+        data = np.load(self.focus_table_path)
 
         self.ns = data["ns"].astype(int)
 

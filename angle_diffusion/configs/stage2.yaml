@@ -1,0 +1,57 @@
+data:
+  root: "./dataset"
+  train_split: "train"
+  val_split: "test"
+  max_samples: null
+  # Optional cache directory for CT_Physics results (recommended, CT degradation is expensive)
+  cache_dir: "dataset/cache_stage2_degraded"
+
+stage1:
+  # Stage1 checkpoint that contains key 'model_le' (e.g., Stage1 best.pth / last.pth)
+  ckpt: "angle_diffusion/output/stage1/20260131_182854/checkpoints/best.pth"
+
+physics:
+  # Focus table npz used by CT_Physics (0 best, 100 worst)
+  focus_table_path: "dataset/linear_indices_100.focus_table.npz"
+  sart_iterations: 10
+  preset: "standard_512"
+
+degradation:
+  # Training degradation range (inclusive). For a fixed limited-angle setting, set t_min=t_max=100.
+  t_min: 0
+  t_max: 100
+  # Validation uses a fixed t for stable metrics.
+  t_val: 100
+  # Optional: use a discrete set of t values sampled uniformly (endpoints included).
+  # With t_min=0,t_max=100,t_num_levels=10 -> [0, 11, 22, 33, 44, 56, 67, 78, 89, 100]
+  t_num_levels: 10
+  # Or explicitly list the discrete t values (must include t_min and t_max):
+  # t_values: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+
+training:
+  batch_size: 24
+  lr: 0.0002
+  epochs: 500
+  num_workers: 0
+  save_interval: 10
+  val_interval: 5
+  seed: 2023
+  # Use only a portion of val set to reduce CT_Physics cost.
+  val_ratio: 0.1
+
+model:
+  # Encoder (BE)
+  in_channels: 1
+  n_feats: 64
+  n_encoder_res: 6
+  pixel_unshuffle_factor: 4
+
+  # AngleDM (latent diffusion)
+  T: 5
+  beta_max: 0.02
+  time_embed_dim: 128
+  hidden_dim: 512
+  use_degrade_level_cond: true
+
+output:
+  out_dir: "./angle_diffusion/output/stage2"
