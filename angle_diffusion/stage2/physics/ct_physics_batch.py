@@ -30,6 +30,7 @@ class CT_PhysicsBatch:
     def __init__(
         self,
         focus_table_path: str = "dataset/linear_indices_100.focus_table.npz",
+        sensitivity_map_dir: str = "dataset/sensitivity_map",
         sart_iterations: int = 10,
         preset: str = "standard_512",
         fp_algorithm: str = "FP3D_CUDA_BATCH",
@@ -38,6 +39,7 @@ class CT_PhysicsBatch:
         num_workers: int | None = None,
     ) -> None:
         self.focus_table_path = focus_table_path
+        self.sensitivity_map_dir = sensitivity_map_dir
         self.sart_iterations = sart_iterations
         self.preset = preset
         self.fp_algorithm = fp_algorithm
@@ -72,9 +74,94 @@ class CT_PhysicsBatch:
 
         self.ns = data["ns"].astype(int)
 
+        self._sensitivity_map_dir_path = self._resolve_path(self.sensitivity_map_dir)
+        self._angle_feature_cache: dict[int, np.ndarray] = {}
+
         print(
             f"[CT_Physics] 初始化完成 | SART={sart_iterations} | 源范围: {self.ns.min()}~{self.ns.max()}"
         )
+
+    def _resolve_path(self, path_like: str) -> Path:
+        path = Path(path_like)
+        if path.is_absolute():
+            return path
+
+        # 优先按仓库根目录解析（.../BlurDM），其次按包根目录解析（.../angle_diffusion）。
+        repo_root = Path(__file__).resolve().parents[3]
+        candidate = repo_root / path
+        if candidate.exists():
+            return candidate
+
+        pkg_root = Path(__file__).resolve().parents[2]
+        candidate2 = pkg_root / path
+        return candidate2 if candidate2.exists() else path
+
+    def t_to_table_index(self, t: int) -> int:
+        if not 1 <= t <= 100:
+            raise ValueError(f"t 必须在 [1, 100] 范围内，实际: {t}")
+        return 100 - int(t)
+
+    def t_to_sensitivity_index(self, t: int) -> int:
+        """将退化等级 t 映射到 sensitivity_map 的索引。
+
+        约定:
+            - t=1  -> table_index=99 -> 099.npy
+            - t=100-> table_index=0  -> 000.npy
+            - t=0  (GT) 没有对应文件；上层应特殊处理。
+        """
+        return self.t_to_table_index(int(t))
+
+    @staticmethod
+    def _extract_angle_feature(arr: np.ndarray) -> np.ndarray:
+        """将 sensitivity_map 的敏感度图压缩为角度条件特征向量。
+
+        预期输入为 3D 张量 (H,W,C) 或 (C,H,W)（C 为角度分段数）。
+        输出为 (C,) float32。
+        """
+        x = np.asarray(arr)
+        if x.ndim != 3:
+            raise ValueError(f"sensitivity_map 期望 3D 数组，实际维度: {x.ndim}")
+
+        # 经验规则：最小的维度通常是通道维（角度分段数）。
+        ch_dim = int(np.argmin(x.shape))
+        x_ch_last = np.moveaxis(x, ch_dim, -1)
+        c = int(x_ch_last.shape[-1])
+        feat = x_ch_last.reshape(-1, c).mean(axis=0, dtype=np.float32)
+        return feat.astype(np.float32, copy=False)
+
+    def get_angle_feature(self, t: int) -> np.ndarray:
+        """获取退化等级 t 对应的角度条件特征向量。
+
+        文件命名规则: sensitivity_map/{table_index:03d}.npy
+        其中 table_index = 100 - t。
+        """
+        if not 0 <= t <= 100:
+            raise ValueError(f"t 必须在 [0, 100] 范围内，实际: {t}")
+
+        if int(t) == 0:
+            cached0 = self._angle_feature_cache.get(-1)
+            if cached0 is not None:
+                return cached0
+            # GT 情况下视野全面覆盖，返回全 1 向量；长度对齐到任意一个有效 t 的特征维度。
+            ref = self.get_angle_feature(1)
+            ones = np.ones_like(ref)
+            self._angle_feature_cache[-1] = ones
+            return ones
+
+        table_index = self.t_to_sensitivity_index(int(t))
+        cached = self._angle_feature_cache.get(table_index)
+        if cached is not None:
+            return cached
+
+        base_dir = self._sensitivity_map_dir_path
+        fpath = base_dir / f"{table_index:03d}.npy"
+        if not fpath.exists():
+            raise FileNotFoundError(f"sensitivity_map 不存在: {fpath}")
+
+        arr = np.load(fpath)
+        feat = self._extract_angle_feature(arr)
+        self._angle_feature_cache[table_index] = feat
+        return feat
 
     def _load_config(self, num_sources: int) -> Dict[str, Any]:
         config = load_fromnpz(self.focus_table_path, num_sources, self.preset)
@@ -124,10 +211,7 @@ class CT_PhysicsBatch:
         if t == 0:
             return image.copy()
 
-        if not 1 <= t <= 100:
-            raise ValueError(f"t 必须在 [0, 100] 范围内，实际: {t}")
-
-        table_index = 100 - t
+        table_index = self.t_to_table_index(t)
         num_sources = int(self.ns[table_index])
         config = self._load_config(num_sources)
 
@@ -145,10 +229,7 @@ class CT_PhysicsBatch:
         if t == 0:
             return images.copy()
 
-        if not 1 <= t <= 100:
-            raise ValueError(f"t 必须在 [0, 100] 范围内，实际: {t}")
-
-        table_index = 100 - t
+        table_index = self.t_to_table_index(t)
         num_sources = int(self.ns[table_index])
         config = self._load_config(num_sources)
 
@@ -208,13 +289,13 @@ class CT_PhysicsBatch:
         fp_id = None
         sirt_id = None
         try:
-            fp_cfg = astra.astra_dict(self.fp_algorithm)
+            fp_cfg: Dict[str, Any] = astra.astra_dict(self.fp_algorithm)
             fp_cfg["VolumeDataIds"] = gt_ids
             fp_cfg["ProjectionDataIds"] = sino_ids
             fp_id = astra.algorithm.create(fp_cfg)
             astra.algorithm.run(fp_id)
 
-            sirt_cfg = astra.astra_dict(self.sirt_algorithm)
+            sirt_cfg: Dict[str, Any] = astra.astra_dict(self.sirt_algorithm)
             sirt_cfg["ProjectionDataIds"] = sino_ids
             sirt_cfg["ReconstructionDataIds"] = recon_ids
             options = self._get_sirt_options(config)
@@ -235,7 +316,5 @@ class CT_PhysicsBatch:
     def t_to_num_sources(self, t: int) -> int:
         if t == 0:
             return -1
-        if not 1 <= t <= 100:
-            raise ValueError(f"t 必须在 [0, 100] 范围内，实际: {t}")
-        table_index = 100 - t
+        table_index = self.t_to_table_index(t)
         return int(self.ns[table_index])

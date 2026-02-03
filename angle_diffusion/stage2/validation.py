@@ -34,9 +34,9 @@ def validate(
     out_dir: str | None = None,
 ) -> dict[str, float]:
     """验证模型性能
-    
+
     通过计算潜在空间 L1 损失来评估模型: ||Z0^B - Z^S||_1
-    
+
     Args:
         cfg: Stage2 配置
         teacher: Stage1 的教师模型（latent encoder）
@@ -49,7 +49,7 @@ def validate(
         device: 计算设备
         epoch: 当前轮次（可选）
         out_dir: 输出目录（可选）
-        
+
     Returns:
         包含验证指标的字典
     """
@@ -66,6 +66,9 @@ def validate(
     total_batches = len(loader)
     num_batches = max(1, int(total_batches * cfg.val_ratio))
 
+    t_level = int(cfg.degrade_t_val)
+    angle_feat_val = torch.from_numpy(ct_physics.get_angle_feature(t_level)).to(device)
+
     for batch_idx, (x0, gt_paths) in enumerate(loader):
         if batch_idx >= num_batches:
             break
@@ -75,7 +78,6 @@ def validate(
         else:
             paths = [str(gt_paths)]
 
-        t_level = int(cfg.degrade_t_val)
         gt_01 = (x0 + 0.5).clamp(0.0, 1.0)
         gt_01_np = gt_01.numpy().astype(np.float32, copy=False)
         deg_np = degrade_batch_with_cache(
@@ -89,7 +91,10 @@ def validate(
         deg_shift = deg_np - 0.5
         x0 = x0.to(device)
         x_deg = torch.from_numpy(deg_shift).to(device)
-        t_tensor = torch.full((x0.shape[0],), float(t_level), device=device)
+        B = int(x0.shape[0])
+        t_tensor = torch.full((B, 1), float(t_level), device=device)
+        angle_feat = angle_feat_val.unsqueeze(0).expand(B, -1)
+        degrade_cond = torch.cat([t_tensor, angle_feat], dim=1)
 
         # Teacher sharp prior (from Stage1 SE): Z^S = LE_arch(x_deg, x0)
         z_s = teacher(x_deg, x0)
@@ -98,7 +103,7 @@ def validate(
         z_b = be(x_deg)
 
         # One-step forward: Z_T = Z_B + beta_bar[T]*eps
-        z0_pred = dm.sample(z_b, degrade_level=t_tensor)
+        z0_pred = dm.sample(z_b, degrade_level=degrade_cond)
 
         loss = F.l1_loss(z0_pred, z_s)
         losses.append(float(loss.detach().cpu().item()))

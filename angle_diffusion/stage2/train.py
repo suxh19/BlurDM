@@ -109,6 +109,16 @@ def train(cfg: Stage2Config, resume: str | None = None) -> None:
         time_embed_dim=cfg.time_embed_dim,
         hidden_dim=cfg.hidden_dim,
         use_degrade_level_cond=cfg.use_degrade_level_cond,
+        level_cond_dim=(
+            1
+            + int(
+                ct_physics.get_angle_feature(
+                    next((t for t in (cfg.degrade_t_values or []) if int(t) > 0), 1)
+                ).shape[0]
+            )
+            if cfg.use_degrade_level_cond
+            else 1
+        ),
     ).to(device)
 
     optimizer = torch.optim.AdamW(
@@ -168,6 +178,18 @@ def train(cfg: Stage2Config, resume: str | None = None) -> None:
     # ------------------------------------------------------------
     # Training loop
     # ------------------------------------------------------------
+    angle_feat_cache: dict[int, torch.Tensor] = {}
+
+    def get_angle_feat_tensor(t_level: int) -> torch.Tensor:
+        key = int(t_level)
+        cached = angle_feat_cache.get(key)
+        if cached is not None:
+            return cached
+        feat_np = ct_physics.get_angle_feature(key)
+        feat = torch.from_numpy(feat_np).to(device)
+        angle_feat_cache[key] = feat
+        return feat
+
     for epoch in range(start_epoch, cfg.epochs):
         be.train()
         dm.train()
@@ -195,7 +217,10 @@ def train(cfg: Stage2Config, resume: str | None = None) -> None:
             deg_shift = deg_np - 0.5
             x0 = x0.to(device)  # [-0.5,0.5]
             x_deg = torch.from_numpy(deg_shift).to(device)
-            t_tensor = torch.full((x0.shape[0],), float(t_level), device=device)
+            B = int(x0.shape[0])
+            t_tensor = torch.full((B, 1), float(t_level), device=device)
+            angle_feat = get_angle_feat_tensor(t_level).unsqueeze(0).expand(B, -1)
+            degrade_cond = torch.cat([t_tensor, angle_feat], dim=1)
 
             # Teacher Z^S
             with torch.no_grad():
@@ -209,7 +234,7 @@ def train(cfg: Stage2Config, resume: str | None = None) -> None:
             z_T = z_b + dm.beta_bar[dm.T] * eps
 
             # Reverse to predict Z0
-            z0_pred = dm.reverse_from(z_T, z_b, degrade_level=t_tensor)
+            z0_pred = dm.reverse_from(z_T, z_b, degrade_level=degrade_cond)
 
             loss = F.l1_loss(z0_pred, z_s)
 

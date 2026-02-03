@@ -50,7 +50,7 @@ class AngleDMSchedule:
 class AngleDM(nn.Module):
     # Type hints for registered buffers
     beta_bar: torch.Tensor
-    
+
     def __init__(
         self,
         latent_dim: int = 256,
@@ -59,6 +59,7 @@ class AngleDM(nn.Module):
         time_embed_dim: int = 128,
         hidden_dim: int = 512,
         use_degrade_level_cond: bool = True,
+        level_cond_dim: int = 1,
     ):
         super().__init__()
         self.latent_dim = int(latent_dim)
@@ -66,6 +67,7 @@ class AngleDM(nn.Module):
         self.beta_max = float(beta_max)
         self.time_embed_dim = int(time_embed_dim)
         self.use_degrade_level_cond = bool(use_degrade_level_cond)
+        self.level_cond_dim = int(level_cond_dim)
 
         # \bar\beta schedule: [0..T], linear is sufficient for our latent prior training.
         beta_bar = torch.linspace(0.0, self.beta_max, self.T + 1)
@@ -74,10 +76,13 @@ class AngleDM(nn.Module):
         # Time embedding for diffusion step index (1..T)
         self.t_embed = nn.Embedding(self.T + 1, self.time_embed_dim)
 
-        # Optional embedding for CT degradation level in [0,100].
+        # Optional embedding for CT degradation condition.
+        # Default: scalar t in [0,100].
+        # Extended: vector [t, angle_feat...] where the first dim is t in [0,100]
+        # and the remaining dims are normalized to [0,1].
         if self.use_degrade_level_cond:
             self.level_mlp = nn.Sequential(
-                nn.Linear(1, self.time_embed_dim),
+                nn.Linear(self.level_cond_dim, self.time_embed_dim),
                 nn.LeakyReLU(0.1, inplace=True),
                 nn.Linear(self.time_embed_dim, self.time_embed_dim),
                 nn.LeakyReLU(0.1, inplace=True),
@@ -91,7 +96,9 @@ class AngleDM(nn.Module):
         if self.use_degrade_level_cond:
             cond_dim += self.time_embed_dim
 
-        self.artifact_est = _mlp(cond_dim, self.latent_dim, hidden_dim=hidden_dim, depth=6)
+        self.artifact_est = _mlp(
+            cond_dim, self.latent_dim, hidden_dim=hidden_dim, depth=6
+        )
         self.noise_est = _mlp(cond_dim, self.latent_dim, hidden_dim=hidden_dim, depth=6)
 
     def _build_cond(
@@ -108,12 +115,56 @@ class AngleDM(nn.Module):
         parts = [z_t, z_cond, t_emb]
         if self.use_degrade_level_cond:
             if degrade_level is None:
-                # If not provided, assume worst-case (100).
-                degrade_level = torch.full((B,), 100.0, device=z_t.device)
+                # If not provided, assume worst-case (t=100) and zero angle feature.
+                base = torch.full((B, 1), 100.0, device=z_t.device)
+                if self.level_cond_dim > 1:
+                    pad = torch.zeros(
+                        (B, self.level_cond_dim - 1),
+                        device=z_t.device,
+                        dtype=base.dtype,
+                    )
+                    degrade_level = torch.cat([base, pad], dim=1)
+                else:
+                    degrade_level = base
+
+            if degrade_level.dim() == 1:
+                degrade_level = degrade_level.view(B, 1)
+            elif degrade_level.dim() != 2:
+                raise ValueError(
+                    f"degrade_level 期望 1D/2D Tensor，实际维度: {degrade_level.dim()}"
+                )
+
+            if degrade_level.shape[0] != B:
+                raise ValueError(
+                    f"degrade_level batch 维度不匹配: got {degrade_level.shape[0]}, expected {B}"
+                )
+
             if degrade_level.dtype != torch.float32:
                 degrade_level = degrade_level.float()
-            # Normalize to [0,1] for stability.
-            lv = (degrade_level / 100.0).clamp(0.0, 1.0).view(B, 1)
+
+            if degrade_level.shape[1] != self.level_cond_dim:
+                if degrade_level.shape[1] == 1 and self.level_cond_dim > 1:
+                    # Backward-compatible: scalar t -> pad zeros for angle_feat.
+                    pad = torch.zeros(
+                        (B, self.level_cond_dim - 1),
+                        device=degrade_level.device,
+                        dtype=degrade_level.dtype,
+                    )
+                    degrade_level = torch.cat([degrade_level, pad], dim=1)
+                else:
+                    raise ValueError(
+                        f"degrade_level cond_dim 不匹配: got {degrade_level.shape[1]}, expected {self.level_cond_dim}"
+                    )
+
+            # Normalize to [0,1] for stability:
+            # - dim0: t in [0,100] -> /100
+            # - dim1..: already in [0,1]
+            t_part = (degrade_level[:, 0:1] / 100.0).clamp(0.0, 1.0)
+            if self.level_cond_dim > 1:
+                extra = degrade_level[:, 1:].clamp(0.0, 1.0)
+                lv = torch.cat([t_part, extra], dim=1)
+            else:
+                lv = t_part
             if self.level_mlp is not None:
                 lv_emb = self.level_mlp(lv)
                 parts.append(lv_emb)
@@ -133,7 +184,12 @@ class AngleDM(nn.Module):
         eps_hat = self.noise_est(cond)
         return a_hat, eps_hat
 
-    def reverse_from(self, z_T: torch.Tensor, z_cond: torch.Tensor, degrade_level: torch.Tensor | None = None) -> torch.Tensor:
+    def reverse_from(
+        self,
+        z_T: torch.Tensor,
+        z_cond: torch.Tensor,
+        degrade_level: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Deterministic reverse process from z_T to z_0 (Case A: alpha=1)."""
         z = z_T
         for step in range(self.T, 0, -1):
@@ -142,7 +198,12 @@ class AngleDM(nn.Module):
             z = z - a_hat - delta * eps_hat
         return z
 
-    def sample(self, z_cond: torch.Tensor, degrade_level: torch.Tensor | None = None, noise: torch.Tensor | None = None) -> torch.Tensor:
+    def sample(
+        self,
+        z_cond: torch.Tensor,
+        degrade_level: torch.Tensor | None = None,
+        noise: torch.Tensor | None = None,
+    ) -> torch.Tensor:
         """Convenience sampling: start from z_T = z_cond + beta_bar[T]*eps."""
         if noise is None:
             noise = torch.randn_like(z_cond)
